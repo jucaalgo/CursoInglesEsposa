@@ -601,6 +601,7 @@ const Onboarding: React.FC<{ onFinish: (data: Partial<UserProfile>) => void }> =
                     </div>
                 </div>
             </div>
+            <div className="fixed bottom-4 text-gray-400 text-xs text-center w-full">v2.5.1 - Fixes Active</div>
         </div>
     );
 };
