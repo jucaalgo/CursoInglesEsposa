@@ -1,425 +1,830 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import {
-    Sun, Moon, Settings, LogOut, BookOpen, Target, Play, Loader2, Zap,
-    ChevronLeft, Flame, Award, CheckCircle, Circle, Lock, Star, X,
-    Volume2, Mic, MicOff, Send, RotateCcw, ChevronRight, PlayCircle
-} from 'lucide-react';
-import confetti from 'canvas-confetti';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Mic, MicOff, Volume2, Send, ArrowLeft, Flame, Star, MessageCircle, BookOpen, Trophy, Settings, LogOut, Sparkles, Check, X, RefreshCw } from 'lucide-react';
+import { generateSpeech, playRawAudio, LiveSession } from './services/gemini';
+import { GoogleGenAI, Type } from "@google/genai";
 
-// Services
-import {
-    generateSyllabus, generateModuleLessons, generateInteractiveContent,
-    evaluatePronunciation, generateSpeech, playRawAudio, analyzeStudentResponse,
-    blobToBase64
-} from './services/gemini';
-import { getUser, saveUser, saveCourse, getCourse, getCurrentUser, setCurrentUser, clearCurrentUser } from './services/repository';
+// ============================================
+// TYPES
+// ============================================
+interface UserProfile {
+    name: string;
+    currentLevel: string;
+    targetLevel: string;
+    interests: string[];
+}
 
-// Types
-import {
-    UserProfile, Course, Module, Lesson, CEFRLevel,
-    InteractiveContent, PronunciationResult, ChatMessage, VocabularyItem
-} from './types';
+interface Message {
+    id: string;
+    role: 'user' | 'tutor';
+    text: string;
+    correction?: {
+        original: string;
+        corrected: string;
+        explanation: string;
+    };
+    audio?: string;
+}
 
-// Existing components we're keeping
-import PronunciationDrill from './components/PronunciationDrill';
-import Quiz from './components/Quiz';
-import LiveTutorModal from './components/LiveTutorModal';
+interface ConversationScenario {
+    id: string;
+    title: string;
+    titleEs: string;
+    description: string;
+    icon: string;
+    difficulty: 'easy' | 'medium' | 'hard';
+    systemPrompt: string;
+}
+
+// ============================================
+// CONSTANTS
+// ============================================
+const LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+
+const SCENARIOS: ConversationScenario[] = [
+    {
+        id: 'daily',
+        title: 'Daily Chat',
+        titleEs: 'Charla Diaria',
+        description: 'Have a casual conversation about your day',
+        icon: '☕',
+        difficulty: 'easy',
+        systemPrompt: `You are a friendly English tutor having a casual conversation. 
+    Be warm, encouraging, and natural. Ask about their day, interests, and life.
+    Gently correct grammar mistakes inline like: "Almost! It's 'I went' not 'I go' 😊"
+    Keep responses short (1-2 sentences) to maintain natural dialogue flow.
+    Speak naturally, not like a textbook.`
+    },
+    {
+        id: 'restaurant',
+        title: 'At a Restaurant',
+        titleEs: 'En el Restaurante',
+        description: 'Practice ordering food and drinks',
+        icon: '🍽️',
+        difficulty: 'easy',
+        systemPrompt: `You are a waiter at a restaurant. Help the student practice ordering food.
+    Start by greeting them and asking what they'd like.
+    Gently correct any grammar mistakes inline.
+    Keep it natural and conversational. Short responses.`
+    },
+    {
+        id: 'job_interview',
+        title: 'Job Interview',
+        titleEs: 'Entrevista de Trabajo',
+        description: 'Practice common interview questions',
+        icon: '💼',
+        difficulty: 'medium',
+        systemPrompt: `You are a professional interviewer. Conduct a friendly but professional job interview.
+    Ask common questions: tell me about yourself, your strengths, why you want this job.
+    Give positive feedback and gentle corrections.
+    Keep responses professional but warm.`
+    },
+    {
+        id: 'travel',
+        title: 'Travel Planning',
+        titleEs: 'Planificando Viajes',
+        description: 'Discuss travel plans and destinations',
+        icon: '✈️',
+        difficulty: 'medium',
+        systemPrompt: `You are a travel agent helping someone plan a trip.
+    Ask about where they want to go, when, preferences.
+    Be enthusiastic about their choices.
+    Correct grammar gently and naturally.`
+    },
+    {
+        id: 'debate',
+        title: 'Friendly Debate',
+        titleEs: 'Debate Amistoso',
+        description: 'Discuss opinions on current topics',
+        icon: '💬',
+        difficulty: 'hard',
+        systemPrompt: `You are an intellectual discussion partner.
+    Discuss current topics, technology, society politely.
+    Challenge their ideas respectfully to encourage complex speech.
+    Correct advanced grammar subtly.`
+    },
+    {
+        id: 'free',
+        title: 'Free Practice',
+        titleEs: 'Práctica Libre',
+        description: 'Talk about anything you want',
+        icon: '🎯',
+        difficulty: 'easy',
+        systemPrompt: `You are a supportive English tutor. Let the student lead the conversation.
+    Be curious, ask follow-up questions.
+    Provide gentle corrections when needed.
+    Be encouraging and positive.`
+    }
+];
 
 // ============================================
 // HOOKS
 // ============================================
 
+// Speech Recognition Hook
+const useSpeechRecognition = () => {
+    const [isListening, setIsListening] = useState(false);
+    const [transcript, setTranscript] = useState('');
+    const [interimTranscript, setInterimTranscript] = useState('');
+    const [isSupported, setIsSupported] = useState(false);
+    const recognitionRef = useRef<any>(null);
+
+    useEffect(() => {
+        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (SpeechRecognition) {
+            setIsSupported(true);
+            const recognition = new SpeechRecognition();
+            recognition.continuous = false;
+            recognition.interimResults = true;
+            recognition.lang = 'en-US';
+
+            recognition.onresult = (event: any) => {
+                let interim = '';
+                let final = '';
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    const result = event.results[i];
+                    if (result.isFinal) {
+                        final += result[0].transcript;
+                    } else {
+                        interim += result[0].transcript;
+                    }
+                }
+                setInterimTranscript(interim);
+                if (final) {
+                    setTranscript(final);
+                }
+            };
+
+            recognition.onerror = (event: any) => {
+                console.error('Speech recognition error:', event.error);
+                setIsListening(false);
+            };
+
+            recognition.onend = () => {
+                setIsListening(false);
+            };
+
+            recognitionRef.current = recognition;
+        }
+    }, []);
+
+    const startListening = useCallback(() => {
+        if (recognitionRef.current) {
+            setTranscript('');
+            setInterimTranscript('');
+            recognitionRef.current.start();
+            setIsListening(true);
+        }
+    }, []);
+
+    const stopListening = useCallback(() => {
+        if (recognitionRef.current) {
+            recognitionRef.current.stop();
+            setIsListening(false);
+        }
+    }, []);
+
+    const resetTranscript = useCallback(() => {
+        setTranscript('');
+        setInterimTranscript('');
+    }, []);
+
+    return {
+        isListening,
+        transcript,
+        interimTranscript,
+        isSupported,
+        startListening,
+        stopListening,
+        resetTranscript
+    };
+};
+
+// Local Storage Hook
+const useLocalStorage = <T,>(key: string, initialValue: T): [T, (value: T) => void] => {
+    const [storedValue, setStoredValue] = useState<T>(() => {
+        try {
+            const item = localStorage.getItem(key);
+            return item ? JSON.parse(item) : initialValue;
+        } catch {
+            return initialValue;
+        }
+    });
+
+    const setValue = (value: T) => {
+        setStoredValue(value);
+        localStorage.setItem(key, JSON.stringify(value));
+    };
+
+    return [storedValue, setValue];
+};
+
 // Streak Hook
 const useStreak = () => {
-    const [streak, setStreak] = useState({ current: 0, longest: 0, lastActivityDate: '' });
+    const [streak, setStreak] = useLocalStorage('profesoria_streak', { count: 0, lastPractice: '' });
+    const [xp, setXp] = useLocalStorage('profesoria_xp', 0);
 
-    useEffect(() => {
-        const saved = localStorage.getItem('profesoria_streak');
-        if (saved) {
-            const data = JSON.parse(saved);
-            const today = new Date().toDateString();
-            const lastDate = data.lastActivityDate ? new Date(data.lastActivityDate).toDateString() : '';
-            const todayDate = new Date(today);
-            const lastActivityDate = lastDate ? new Date(lastDate) : null;
+    const updateStreak = useCallback(() => {
+        const today = new Date().toDateString();
+        const yesterday = new Date(Date.now() - 86400000).toDateString();
 
-            if (lastActivityDate) {
-                const diffDays = Math.floor((todayDate.getTime() - lastActivityDate.getTime()) / (1000 * 60 * 60 * 24));
-                if (diffDays > 1) {
-                    setStreak({ current: 0, longest: data.longest, lastActivityDate: '' });
-                } else {
-                    setStreak(data);
+        if (streak.lastPractice === today) return;
+
+        const newCount = streak.lastPractice === yesterday ? streak.count + 1 : 1;
+        setStreak({ count: newCount, lastPractice: today });
+    }, [streak, setStreak]);
+
+    const addXp = useCallback((amount: number) => {
+        setXp(xp + amount);
+        updateStreak();
+    }, [xp, setXp, updateStreak]);
+
+    return { streak: streak.count, xp, addXp, updateStreak };
+};
+
+// ============================================
+// GEMINI AI SERVICE
+// ============================================
+const getApiKey = () => {
+    const customKey = localStorage.getItem('profesoria_api_key');
+    // @ts-ignore
+    const envKey = import.meta.env?.VITE_GEMINI_API_KEY;
+    return customKey || envKey;
+};
+
+const chatWithTutor = async (
+    messages: { role: 'user' | 'model'; text: string }[],
+    systemPrompt: string,
+    userLevel: string
+): Promise<{ text: string; correction?: { original: string; corrected: string; explanation: string } }> => {
+    const apiKey = getApiKey();
+    if (!apiKey) throw new Error('API Key missing');
+
+    const client = new GoogleGenAI({ apiKey });
+
+    const fullSystemPrompt = `${systemPrompt}
+  
+  Student's English level: ${userLevel}
+  
+  IMPORTANT RULES:
+  1. Keep responses SHORT (1-3 sentences max)
+  2. Be conversational, not formal
+  3. If there's a grammar error, correct it naturally inline with **bold** for the correction
+  4. Always respond in English
+  5. Be encouraging and warm
+  
+  Response format (JSON):
+  {
+    "text": "Your conversational response",
+    "hasCorrection": true/false,
+    "correction": {
+      "original": "what they said wrong",
+      "corrected": "how to say it right",
+      "explanation": "brief explanation in Spanish"
+    }
+  }`;
+
+    const contents = messages.map(m => ({
+        role: m.role === 'user' ? 'user' : 'model',
+        parts: [{ text: m.text }]
+    }));
+
+    try {
+        const response = await client.models.generateContent({
+            model: 'gemini-2.5-flash',
+            systemInstruction: fullSystemPrompt,
+            contents,
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        text: { type: Type.STRING },
+                        hasCorrection: { type: Type.BOOLEAN },
+                        correction: {
+                            type: Type.OBJECT,
+                            properties: {
+                                original: { type: Type.STRING },
+                                corrected: { type: Type.STRING },
+                                explanation: { type: Type.STRING }
+                            }
+                        }
+                    }
                 }
             }
-        }
-    }, []);
-
-    const recordActivity = useCallback(() => {
-        const today = new Date().toDateString();
-        setStreak(prev => {
-            if (prev.lastActivityDate === today) return prev;
-
-            const lastDate = prev.lastActivityDate ? new Date(prev.lastActivityDate) : null;
-            const todayDate = new Date(today);
-            let newCurrent = 1;
-
-            if (lastDate) {
-                const diffDays = Math.floor((todayDate.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
-                if (diffDays === 1) newCurrent = prev.current + 1;
-            }
-
-            const newStreak = {
-                current: newCurrent,
-                longest: Math.max(newCurrent, prev.longest),
-                lastActivityDate: today
-            };
-            localStorage.setItem('profesoria_streak', JSON.stringify(newStreak));
-            return newStreak;
-        });
-    }, []);
-
-    const hasActivityToday = useCallback(() => {
-        return streak.lastActivityDate === new Date().toDateString();
-    }, [streak.lastActivityDate]);
-
-    return { currentStreak: streak.current, longestStreak: streak.longest, recordActivity, hasActivityToday };
-};
-
-// Progress Hook
-const useProgress = () => {
-    const [progress, setProgress] = useState({ totalXP: 0, currentLevelXP: 0, level: 1 });
-
-    useEffect(() => {
-        const savedXP = localStorage.getItem('profesoria_xp');
-        const savedLevel = localStorage.getItem('profesoria_level');
-        if (savedXP && savedLevel) {
-            const totalXP = parseInt(savedXP, 10);
-            const level = parseInt(savedLevel, 10);
-            let currentLevelXP = totalXP;
-            for (let i = 1; i < level; i++) currentLevelXP -= Math.floor(100 * Math.pow(1.2, i - 1));
-            setProgress({ totalXP, level, currentLevelXP });
-        }
-    }, []);
-
-    const xpForLevel = (level: number) => Math.floor(100 * Math.pow(1.2, level - 1));
-
-    const awardXP = useCallback((amount: number) => {
-        let leveledUp = false;
-        let newLevel = progress.level;
-
-        setProgress(prev => {
-            let totalXP = prev.totalXP + amount;
-            let currentLevelXP = prev.currentLevelXP + amount;
-            let level = prev.level;
-
-            while (currentLevelXP >= xpForLevel(level)) {
-                currentLevelXP -= xpForLevel(level);
-                level++;
-                leveledUp = true;
-                newLevel = level;
-            }
-
-            localStorage.setItem('profesoria_xp', totalXP.toString());
-            localStorage.setItem('profesoria_level', level.toString());
-            return { totalXP, currentLevelXP, level };
         });
 
-        return { leveledUp, newLevel };
-    }, [progress.level]);
-
-    const getLevelProgress = useCallback(() => {
-        return Math.min((progress.currentLevelXP / xpForLevel(progress.level)) * 100, 100);
-    }, [progress.level, progress.currentLevelXP]);
-
-    return { ...progress, awardXP, getLevelProgress, xpForLevel };
-};
-
-// Audio Hook
-const useAudio = () => {
-    const [state, setState] = useState({
-        isRecording: false, audioBlob: null as Blob | null, audioUrl: null as string | null
-    });
-    const mediaRecorderRef = React.useRef<MediaRecorder | null>(null);
-    const audioChunksRef = React.useRef<Blob[]>([]);
-    const streamRef = React.useRef<MediaStream | null>(null);
-
-    const startRecording = useCallback(async () => {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            streamRef.current = stream;
-            audioChunksRef.current = [];
-
-            const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
-            mediaRecorderRef.current = mediaRecorder;
-
-            mediaRecorder.ondataavailable = (e) => {
-                if (e.data.size > 0) audioChunksRef.current.push(e.data);
-            };
-
-            mediaRecorder.onstop = () => {
-                const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-                const audioUrl = URL.createObjectURL(audioBlob);
-                setState({ isRecording: false, audioBlob, audioUrl });
-                stream.getTracks().forEach(t => t.stop());
-            };
-
-            mediaRecorder.start(100);
-            setState(prev => ({ ...prev, isRecording: true }));
-        } catch (error) {
-            console.error('Microphone error:', error);
-        }
-    }, []);
-
-    const stopRecording = useCallback(() => {
-        if (mediaRecorderRef.current && state.isRecording) {
-            mediaRecorderRef.current.stop();
-        }
-    }, [state.isRecording]);
-
-    const getBase64Audio = useCallback(async () => {
-        if (!state.audioBlob) return null;
-        return blobToBase64(state.audioBlob);
-    }, [state.audioBlob]);
-
-    const clearRecording = useCallback(() => {
-        if (state.audioUrl) URL.revokeObjectURL(state.audioUrl);
-        setState({ isRecording: false, audioBlob: null, audioUrl: null });
-    }, [state.audioUrl]);
-
-    return { ...state, startRecording, stopRecording, getBase64Audio, clearRecording };
+        const result = JSON.parse(response.text || '{}');
+        return {
+            text: result.text || "I didn't catch that. Could you repeat?",
+            correction: result.hasCorrection ? result.correction : undefined
+        };
+    } catch (error) {
+        console.error('Chat error:', error);
+        throw error;
+    }
 };
 
 // ============================================
 // COMPONENTS
 // ============================================
 
-// Streak Counter
-const StreakCounter: React.FC<{
-    currentStreak: number;
-    longestStreak: number;
-    hasActivityToday: boolean;
-}> = ({ currentStreak, longestStreak, hasActivityToday }) => (
-    <div className="streak-counter">
-        <div className="streak-main">
-            <motion.div
-                className={`streak-flame-container ${currentStreak >= 7 ? 'on-fire' : ''}`}
-                animate={currentStreak >= 7 ? { scale: [1, 1.1, 1] } : {}}
-                transition={{ repeat: Infinity, duration: 0.5 }}
-            >
-                <Flame className={`streak-flame-icon ${hasActivityToday ? 'active' : ''}`} size={48} />
-            </motion.div>
-            <div className="streak-info">
-                <motion.span className="streak-count" key={currentStreak}>
-                    {currentStreak}
-                </motion.span>
-                <span className="streak-label">{currentStreak === 1 ? 'día' : 'días'} seguidos</span>
-            </div>
-        </div>
-        {!hasActivityToday && (
-            <motion.div className="streak-warning" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                ¡Practica hoy para mantener tu racha! 🔥
-            </motion.div>
-        )}
-        <div className="streak-record">
-            <Award size={16} />
-            <span>Récord: {longestStreak} días</span>
-        </div>
-    </div>
-);
+// Login Screen
+const LoginScreen: React.FC<{ onLogin: (name: string) => void }> = ({ onLogin }) => {
+    const [name, setName] = useState('');
 
-// Progress Ring
-const ProgressRing: React.FC<{
-    progress: number;
-    size?: number;
-    color?: string;
-    children?: React.ReactNode;
-    label?: string;
-}> = ({ progress, size = 100, color = '#22C55E', children, label }) => {
-    const strokeWidth = 8;
-    const radius = (size - strokeWidth) / 2;
-    const circumference = radius * 2 * Math.PI;
-    const offset = circumference - (progress / 100) * circumference;
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (name.trim()) onLogin(name.trim());
+    };
 
     return (
-        <div className="progress-ring-container" style={{ width: size, height: size }}>
-            <svg width={size} height={size}>
-                <circle stroke="#E5E7EB" strokeWidth={strokeWidth} fill="transparent" r={radius} cx={size / 2} cy={size / 2} />
-                <motion.circle
-                    stroke={color}
-                    strokeWidth={strokeWidth}
-                    strokeLinecap="round"
-                    fill="transparent"
-                    r={radius}
-                    cx={size / 2}
-                    cy={size / 2}
-                    style={{ strokeDasharray: circumference, transform: 'rotate(-90deg)', transformOrigin: '50% 50%' }}
-                    initial={{ strokeDashoffset: circumference }}
-                    animate={{ strokeDashoffset: offset }}
-                    transition={{ duration: 1, ease: 'easeOut' }}
-                />
-            </svg>
-            <div className="progress-ring-content">
-                {children || (
-                    <div className="progress-ring-label">
-                        <span className="progress-percentage">{Math.round(progress)}%</span>
-                        {label && <span className="progress-text">{label}</span>}
-                    </div>
-                )}
+        <div className="min-h-screen flex items-center justify-center p-4" style={{
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)'
+        }}>
+            <div className="bg-white/90 backdrop-blur-xl rounded-3xl p-8 w-full max-w-md shadow-2xl">
+                <div className="text-center mb-8">
+                    <div className="text-5xl mb-4">🎓</div>
+                    <h1 className="text-3xl font-bold text-gray-800">Profesoria</h1>
+                    <p className="text-gray-500 mt-2">Tu tutor de inglés con IA</p>
+                </div>
+
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <input
+                        type="text"
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        placeholder="¿Cómo te llamas?"
+                        className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-purple-500 focus:outline-none text-lg"
+                        autoFocus
+                    />
+                    <button
+                        type="submit"
+                        disabled={!name.trim()}
+                        className="w-full py-3 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold text-lg hover:opacity-90 transition-opacity disabled:opacity-50"
+                    >
+                        Comenzar 🚀
+                    </button>
+                </form>
             </div>
         </div>
     );
 };
 
-// Module Card
-const ModuleCard: React.FC<{
-    module: Module;
-    index: number;
-    isLocked?: boolean;
-    onClick?: () => void;
-    isLoading?: boolean;
-}> = ({ module, index, isLocked = false, onClick, isLoading = false }) => {
-    const completedLessons = module.lessons?.filter(l => l.isCompleted).length || 0;
-    const totalLessons = module.lessons?.length || 10;
-    const progress = module.isGenerated ? (completedLessons / totalLessons) * 100 : 0;
+// Onboarding Screen
+const OnboardingScreen: React.FC<{
+    name: string;
+    onComplete: (profile: UserProfile) => void;
+}> = ({ name, onComplete }) => {
+    const [step, setStep] = useState(0);
+    const [currentLevel, setCurrentLevel] = useState('A2');
+    const [targetLevel, setTargetLevel] = useState('B2');
+    const [interests, setInterests] = useState<string[]>([]);
 
-    const getIcon = () => {
-        if (isLoading) return <Loader2 className="module-icon loading spinning" size={24} />;
-        if (module.isCompleted) return <CheckCircle className="module-icon completed" size={24} />;
-        if (isLocked) return <Lock className="module-icon locked" size={24} />;
-        return <BookOpen className="module-icon" size={24} />;
+    const interestOptions = ['Viajes', 'Negocios', 'Tecnología', 'Películas', 'Deportes', 'Música'];
+
+    const handleComplete = () => {
+        onComplete({
+            name,
+            currentLevel,
+            targetLevel,
+            interests: interests.length ? interests : ['General']
+        });
     };
 
-    const colors = ['#22C55E', '#3B82F6', '#8B5CF6', '#EC4899', '#F97316'];
+    const steps = [
+        // Level selection
+        <div key="level" className="space-y-4">
+            <h2 className="text-2xl font-bold text-center">¿Cuál es tu nivel actual?</h2>
+            <div className="grid grid-cols-3 gap-3">
+                {LEVELS.map(level => (
+                    <button
+                        key={level}
+                        onClick={() => setCurrentLevel(level)}
+                        className={`py-4 rounded-xl text-lg font-semibold transition-all ${currentLevel === level
+                                ? 'bg-purple-600 text-white scale-105'
+                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                            }`}
+                    >
+                        {level}
+                    </button>
+                ))}
+            </div>
+            <button
+                onClick={() => setStep(1)}
+                className="w-full py-3 mt-4 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold"
+            >
+                Siguiente
+            </button>
+        </div>,
+
+        // Target level
+        <div key="target" className="space-y-4">
+            <h2 className="text-2xl font-bold text-center">¿A qué nivel quieres llegar?</h2>
+            <div className="grid grid-cols-3 gap-3">
+                {LEVELS.filter(l => LEVELS.indexOf(l) > LEVELS.indexOf(currentLevel)).map(level => (
+                    <button
+                        key={level}
+                        onClick={() => setTargetLevel(level)}
+                        className={`py-4 rounded-xl text-lg font-semibold transition-all ${targetLevel === level
+                                ? 'bg-purple-600 text-white scale-105'
+                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                            }`}
+                    >
+                        {level}
+                    </button>
+                ))}
+            </div>
+            <button
+                onClick={() => setStep(2)}
+                className="w-full py-3 mt-4 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold"
+            >
+                Siguiente
+            </button>
+        </div>,
+
+        // Interests
+        <div key="interests" className="space-y-4">
+            <h2 className="text-2xl font-bold text-center">¿Qué te interesa?</h2>
+            <p className="text-gray-500 text-center">Selecciona varios temas</p>
+            <div className="grid grid-cols-2 gap-3">
+                {interestOptions.map(interest => (
+                    <button
+                        key={interest}
+                        onClick={() => {
+                            setInterests(prev =>
+                                prev.includes(interest)
+                                    ? prev.filter(i => i !== interest)
+                                    : [...prev, interest]
+                            );
+                        }}
+                        className={`py-3 px-4 rounded-xl font-medium transition-all ${interests.includes(interest)
+                                ? 'bg-purple-600 text-white'
+                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                            }`}
+                    >
+                        {interest}
+                    </button>
+                ))}
+            </div>
+            <button
+                onClick={handleComplete}
+                className="w-full py-3 mt-4 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold"
+            >
+                ¡Empezar a aprender! 🎉
+            </button>
+        </div>
+    ];
 
     return (
-        <motion.div
-            className={`module-card ${isLocked ? 'locked' : ''} ${module.isCompleted ? 'completed' : ''}`}
-            onClick={!isLocked && !isLoading ? onClick : undefined}
-            whileHover={!isLocked ? { scale: 1.02, y: -4 } : {}}
-            whileTap={!isLocked ? { scale: 0.98 } : {}}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.05 }}
-            style={{ '--accent-color': colors[index % 5] } as React.CSSProperties}
-        >
-            <div className="module-card-header">
-                <div className="module-number">{(index + 1).toString().padStart(2, '0')}</div>
-                {getIcon()}
-            </div>
-            <div className="module-card-content">
-                <h3 className="module-title">{module.title}</h3>
-                {module.isGenerated && (
-                    <div className="module-lessons-info">{completedLessons}/{totalLessons} lecciones</div>
-                )}
-            </div>
-            <div className="module-card-footer">
-                <div className="module-progress-bar">
-                    <motion.div className="module-progress-fill" animate={{ width: `${progress}%` }} />
+        <div className="min-h-screen flex items-center justify-center p-4" style={{
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)'
+        }}>
+            <div className="bg-white/90 backdrop-blur-xl rounded-3xl p-8 w-full max-w-md shadow-2xl">
+                <div className="mb-6">
+                    <div className="flex justify-center gap-2 mb-4">
+                        {[0, 1, 2].map(i => (
+                            <div
+                                key={i}
+                                className={`w-3 h-3 rounded-full transition-colors ${i <= step ? 'bg-purple-600' : 'bg-gray-300'
+                                    }`}
+                            />
+                        ))}
+                    </div>
+                    <p className="text-center text-gray-500">Hola, {name} 👋</p>
                 </div>
-                {!isLocked && <ChevronRight className="module-arrow" size={20} />}
+                {steps[step]}
             </div>
-            {isLocked && (
-                <div className="module-locked-overlay">
-                    <Lock size={32} />
-                    <span>Completa el módulo anterior</span>
+        </div>
+    );
+};
+
+// Dashboard Screen
+const DashboardScreen: React.FC<{
+    profile: UserProfile;
+    streak: number;
+    xp: number;
+    onSelectScenario: (scenario: ConversationScenario) => void;
+    onLogout: () => void;
+}> = ({ profile, streak, xp, onSelectScenario, onLogout }) => {
+    return (
+        <div className="min-h-screen bg-gray-50">
+            {/* Header */}
+            <header className="bg-white shadow-sm px-4 py-4">
+                <div className="max-w-lg mx-auto flex items-center justify-between">
+                    <div>
+                        <h1 className="text-xl font-bold text-gray-800">Hola, {profile.name}! 👋</h1>
+                        <p className="text-sm text-gray-500">Nivel: {profile.currentLevel} → {profile.targetLevel}</p>
+                    </div>
+                    <button onClick={onLogout} className="text-gray-400 hover:text-gray-600">
+                        <LogOut size={20} />
+                    </button>
+                </div>
+            </header>
+
+            {/* Stats */}
+            <div className="max-w-lg mx-auto px-4 py-6">
+                <div className="grid grid-cols-2 gap-4 mb-8">
+                    <div className="bg-gradient-to-br from-orange-400 to-red-500 rounded-2xl p-4 text-white">
+                        <div className="flex items-center gap-2">
+                            <Flame size={24} />
+                            <span className="text-3xl font-bold">{streak}</span>
+                        </div>
+                        <p className="text-sm opacity-90 mt-1">Días seguidos</p>
+                    </div>
+                    <div className="bg-gradient-to-br from-yellow-400 to-orange-500 rounded-2xl p-4 text-white">
+                        <div className="flex items-center gap-2">
+                            <Star size={24} />
+                            <span className="text-3xl font-bold">{xp}</span>
+                        </div>
+                        <p className="text-sm opacity-90 mt-1">XP Total</p>
+                    </div>
+                </div>
+
+                {/* Scenarios */}
+                <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                    <MessageCircle size={20} />
+                    ¿De qué quieres hablar hoy?
+                </h2>
+
+                <div className="space-y-3">
+                    {SCENARIOS.map(scenario => (
+                        <button
+                            key={scenario.id}
+                            onClick={() => onSelectScenario(scenario)}
+                            className="w-full bg-white rounded-2xl p-4 shadow-sm hover:shadow-md transition-all flex items-center gap-4 text-left"
+                        >
+                            <div className="text-3xl">{scenario.icon}</div>
+                            <div className="flex-1">
+                                <h3 className="font-semibold text-gray-800">{scenario.titleEs}</h3>
+                                <p className="text-sm text-gray-500">{scenario.description}</p>
+                            </div>
+                            <div className={`px-2 py-1 rounded-full text-xs font-medium ${scenario.difficulty === 'easy' ? 'bg-green-100 text-green-700' :
+                                    scenario.difficulty === 'medium' ? 'bg-yellow-100 text-yellow-700' :
+                                        'bg-red-100 text-red-700'
+                                }`}>
+                                {scenario.difficulty === 'easy' ? 'Fácil' :
+                                    scenario.difficulty === 'medium' ? 'Medio' : 'Difícil'}
+                            </div>
+                        </button>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// Chat Screen (Main Conversation)
+const ChatScreen: React.FC<{
+    scenario: ConversationScenario;
+    profile: UserProfile;
+    onBack: () => void;
+    onAddXp: (amount: number) => void;
+}> = ({ scenario, profile, onBack, onAddXp }) => {
+    const [messages, setMessages] = useState<Message[]>([]);
+    const [inputText, setInputText] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
+    const [isSpeaking, setIsSpeaking] = useState(false);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    const {
+        isListening,
+        transcript,
+        interimTranscript,
+        isSupported: speechSupported,
+        startListening,
+        stopListening,
+        resetTranscript
+    } = useSpeechRecognition();
+
+    // Scroll to bottom
+    useEffect(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [messages]);
+
+    // Handle transcript when user stops speaking
+    useEffect(() => {
+        if (transcript && !isListening) {
+            handleSendMessage(transcript);
+            resetTranscript();
+        }
+    }, [transcript, isListening]);
+
+    // Initial greeting
+    useEffect(() => {
+        const greet = async () => {
+            setIsLoading(true);
+            try {
+                const greeting = await chatWithTutor(
+                    [{ role: 'user', text: 'Start the conversation with a warm greeting.' }],
+                    scenario.systemPrompt,
+                    profile.currentLevel
+                );
+
+                const tutorMessage: Message = {
+                    id: Date.now().toString(),
+                    role: 'tutor',
+                    text: greeting.text
+                };
+
+                setMessages([tutorMessage]);
+
+                // Speak the greeting
+                try {
+                    const audio = await generateSpeech(greeting.text, 'Kore');
+                    await playRawAudio(audio);
+                } catch (e) {
+                    console.warn('TTS failed:', e);
+                }
+            } catch (error) {
+                console.error('Greeting error:', error);
+                setMessages([{
+                    id: '1',
+                    role: 'tutor',
+                    text: "Hi there! Let's practice English together. How are you today?"
+                }]);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        greet();
+    }, []);
+
+    const handleSendMessage = async (text: string) => {
+        if (!text.trim() || isLoading) return;
+
+        const userMessage: Message = {
+            id: Date.now().toString(),
+            role: 'user',
+            text: text.trim()
+        };
+
+        setMessages(prev => [...prev, userMessage]);
+        setInputText('');
+        setIsLoading(true);
+
+        try {
+            const chatHistory = [...messages, userMessage].map(m => ({
+                role: m.role === 'user' ? 'user' as const : 'model' as const,
+                text: m.text
+            }));
+
+            const response = await chatWithTutor(
+                chatHistory,
+                scenario.systemPrompt,
+                profile.currentLevel
+            );
+
+            const tutorMessage: Message = {
+                id: (Date.now() + 1).toString(),
+                role: 'tutor',
+                text: response.text,
+                correction: response.correction
+            };
+
+            setMessages(prev => [...prev, tutorMessage]);
+
+            // Add XP for practicing
+            onAddXp(5);
+
+            // Speak the response
+            setIsSpeaking(true);
+            try {
+                const audio = await generateSpeech(response.text, 'Kore');
+                await playRawAudio(audio);
+            } catch (e) {
+                console.warn('TTS failed:', e);
+            } finally {
+                setIsSpeaking(false);
+            }
+        } catch (error) {
+            console.error('Chat error:', error);
+            setMessages(prev => [...prev, {
+                id: (Date.now() + 1).toString(),
+                role: 'tutor',
+                text: "Sorry, I had trouble understanding. Could you try again?"
+            }]);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleMicClick = () => {
+        if (isListening) {
+            stopListening();
+        } else {
+            startListening();
+        }
+    };
+
+    return (
+        <div className="min-h-screen bg-gray-50 flex flex-col">
+            {/* Header */}
+            <header className="bg-white shadow-sm px-4 py-3 flex items-center gap-3">
+                <button onClick={onBack} className="text-gray-600">
+                    <ArrowLeft size={24} />
+                </button>
+                <div className="flex-1">
+                    <h1 className="font-semibold text-gray-800">{scenario.titleEs}</h1>
+                    <p className="text-xs text-gray-500">{scenario.icon} {scenario.title}</p>
+                </div>
+                {isSpeaking && (
+                    <div className="flex items-center gap-1 text-purple-600">
+                        <Volume2 size={16} className="animate-pulse" />
+                        <span className="text-xs">Hablando...</span>
+                    </div>
+                )}
+            </header>
+
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+                {messages.map(message => (
+                    <div
+                        key={message.id}
+                        className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                    >
+                        <div className={`max-w-[80%] rounded-2xl px-4 py-3 ${message.role === 'user'
+                                ? 'bg-purple-600 text-white rounded-br-md'
+                                : 'bg-white shadow-sm rounded-bl-md'
+                            }`}>
+                            <p className={message.role === 'tutor' ? 'text-gray-800' : ''}>{message.text}</p>
+
+                            {message.correction && (
+                                <div className="mt-2 pt-2 border-t border-purple-200 bg-purple-50 rounded-lg p-2 -mx-2 -mb-1">
+                                    <div className="flex items-start gap-2">
+                                        <Sparkles size={14} className="text-purple-600 mt-0.5" />
+                                        <div className="text-xs">
+                                            <p className="text-red-500 line-through">{message.correction.original}</p>
+                                            <p className="text-green-600 font-medium">✓ {message.correction.corrected}</p>
+                                            <p className="text-gray-500 mt-1">{message.correction.explanation}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                ))}
+
+                {isLoading && (
+                    <div className="flex justify-start">
+                        <div className="bg-white shadow-sm rounded-2xl rounded-bl-md px-4 py-3">
+                            <div className="flex items-center gap-1">
+                                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                <div ref={messagesEndRef} />
+            </div>
+
+            {/* Interim transcript */}
+            {(isListening || interimTranscript) && (
+                <div className="px-4 py-2 bg-purple-50 border-t">
+                    <p className="text-sm text-purple-600 flex items-center gap-2">
+                        <Mic size={14} className="animate-pulse" />
+                        {interimTranscript || 'Escuchando...'}
+                    </p>
                 </div>
             )}
-        </motion.div>
-    );
-};
 
-// Vocabulary Cards
-const VocabularyCards: React.FC<{
-    vocabulary: VocabularyItem[];
-    onComplete: () => void;
-    voiceName?: string;
-}> = ({ vocabulary, onComplete, voiceName = 'Kore' }) => {
-    const [currentIndex, setCurrentIndex] = useState(0);
-    const [isFlipped, setIsFlipped] = useState(false);
-    const [knownWords, setKnownWords] = useState<Set<string>>(new Set());
-    const [isPlaying, setIsPlaying] = useState(false);
+            {/* Input Area */}
+            <div className="bg-white border-t px-4 py-3 safe-area-pb">
+                <div className="flex items-center gap-3">
+                    <input
+                        type="text"
+                        value={inputText}
+                        onChange={(e) => setInputText(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleSendMessage(inputText)}
+                        placeholder="Escribe o habla en inglés..."
+                        className="flex-1 px-4 py-2 rounded-full border border-gray-200 focus:border-purple-500 focus:outline-none"
+                        disabled={isListening}
+                    />
 
-    const currentWord = vocabulary[currentIndex];
-    const progress = ((currentIndex + 1) / vocabulary.length) * 100;
+                    {speechSupported && (
+                        <button
+                            onClick={handleMicClick}
+                            disabled={isLoading}
+                            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${isListening
+                                    ? 'bg-red-500 text-white animate-pulse'
+                                    : 'bg-purple-100 text-purple-600 hover:bg-purple-200'
+                                }`}
+                        >
+                            {isListening ? <MicOff size={20} /> : <Mic size={20} />}
+                        </button>
+                    )}
 
-    const playPronunciation = async () => {
-        if (isPlaying) return;
-        setIsPlaying(true);
-        try {
-            const audio = await generateSpeech(currentWord.term, voiceName);
-            await playRawAudio(audio);
-        } catch (e) {
-            console.error('TTS error:', e);
-        } finally {
-            setIsPlaying(false);
-        }
-    };
-
-    const goToNext = () => {
-        if (currentIndex < vocabulary.length - 1) {
-            setIsFlipped(false);
-            setTimeout(() => setCurrentIndex(prev => prev + 1), 200);
-        } else {
-            onComplete();
-        }
-    };
-
-    const handleKnow = () => {
-        setKnownWords(prev => new Set(prev).add(currentWord.id));
-        goToNext();
-    };
-
-    return (
-        <div className="vocabulary-cards">
-            <div className="vocab-progress">
-                <div className="vocab-progress-bar">
-                    <motion.div className="vocab-progress-fill" animate={{ width: `${progress}%` }} />
+                    <button
+                        onClick={() => handleSendMessage(inputText)}
+                        disabled={!inputText.trim() || isLoading}
+                        className="w-12 h-12 rounded-full bg-purple-600 text-white flex items-center justify-center hover:bg-purple-700 disabled:opacity-50"
+                    >
+                        <Send size={20} />
+                    </button>
                 </div>
-                <span className="vocab-progress-text">{currentIndex + 1} / {vocabulary.length}</span>
             </div>
-
-            <div className="vocab-card-container">
-                <motion.div
-                    className={`vocab-card ${isFlipped ? 'flipped' : ''}`}
-                    onClick={() => setIsFlipped(!isFlipped)}
-                    key={currentIndex}
-                    initial={{ opacity: 0, x: 50 }}
-                    animate={{ opacity: 1, x: 0 }}
-                >
-                    <div className="vocab-card-inner">
-                        <div className="vocab-card-front">
-                            <motion.button
-                                className="vocab-audio-btn"
-                                onClick={(e) => { e.stopPropagation(); playPronunciation(); }}
-                                whileHover={{ scale: 1.1 }}
-                                disabled={isPlaying}
-                            >
-                                <Volume2 size={24} className={isPlaying ? 'playing' : ''} />
-                            </motion.button>
-                            <h2 className="vocab-term">{currentWord.term}</h2>
-                            <span className="vocab-hint">Toca para ver definición</span>
-                        </div>
-                        <div className="vocab-card-back">
-                            <h3 className="vocab-definition-label">Definición:</h3>
-                            <p className="vocab-definition">{currentWord.definition}</p>
-                        </div>
-                    </div>
-                </motion.div>
-            </div>
-
-            <div className="vocab-actions">
-                <motion.button className="vocab-action-btn dont-know" onClick={goToNext} whileHover={{ scale: 1.05 }}>
-                    <X size={20} /> No la sé
-                </motion.button>
-                <motion.button className="vocab-action-btn flip" onClick={() => setIsFlipped(!isFlipped)} whileHover={{ scale: 1.05 }}>
-                    <RotateCcw size={20} /> Voltear
-                </motion.button>
-                <motion.button className="vocab-action-btn know" onClick={handleKnow} whileHover={{ scale: 1.05 }}>
-                    <CheckCircle size={20} /> ¡La sé!
-                </motion.button>
-            </div>
-
-            <div className="vocab-known-counter">Palabras conocidas: {knownWords.size}/{vocabulary.length}</div>
         </div>
     );
 };
@@ -427,614 +832,103 @@ const VocabularyCards: React.FC<{
 // ============================================
 // MAIN APP
 // ============================================
-
-type AppState = 'loading' | 'login' | 'onboarding' | 'dashboard' | 'module' | 'lesson';
-
 const App: React.FC = () => {
-    // Core state
-    const [appState, setAppState] = useState<AppState>('loading');
-    const [user, setUser] = useState<UserProfile | null>(null);
-    const [course, setCourse] = useState<Course | null>(null);
-    const [activeModuleId, setActiveModuleId] = useState<string | null>(null);
-    const [activeLessonId, setActiveLessonId] = useState<string | null>(null);
-    const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('profesoria_theme') === 'dark');
-    const [isLoadingCourse, setIsLoadingCourse] = useState(false);
-    const [isLoadingModule, setIsLoadingModule] = useState(false);
-    const [isLoadingLesson, setIsLoadingLesson] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-    const [showTutor, setShowTutor] = useState(false);
+    const [currentUser, setCurrentUser] = useLocalStorage<string | null>('profesoria_current_user', null);
+    const [profile, setProfile] = useLocalStorage<UserProfile | null>('profesoria_profile', null);
+    const [selectedScenario, setSelectedScenario] = useState<ConversationScenario | null>(null);
+    const { streak, xp, addXp } = useStreak();
 
-    // Hooks
-    const { currentStreak, longestStreak, recordActivity, hasActivityToday } = useStreak();
-    const { totalXP, level, getLevelProgress, awardXP } = useProgress();
+    // App State
+    const [appState, setAppState] = useState<'loading' | 'login' | 'onboarding' | 'dashboard' | 'chat'>('loading');
 
-    // Theme effect
     useEffect(() => {
-        document.documentElement.setAttribute('data-theme', isDarkMode ? 'dark' : 'light');
-        localStorage.setItem('profesoria_theme', isDarkMode ? 'dark' : 'light');
-    }, [isDarkMode]);
-
-    // Load user on mount
-    useEffect(() => {
-        const loadUser = async () => {
-            const currentUsername = getCurrentUser();
-            if (currentUsername) {
-                const userData = await getUser(currentUsername);
-                if (userData) {
-                    setUser(userData);
-                    const savedCourse = await getCourse(currentUsername);
-                    if (savedCourse) setCourse(savedCourse);
-                    setAppState('dashboard');
-                } else {
-                    setAppState('login');
-                }
-            } else {
-                setAppState('login');
-            }
-        };
-        loadUser();
+        // Determine initial state
+        if (currentUser && profile) {
+            setAppState('dashboard');
+        } else if (currentUser && !profile) {
+            setAppState('onboarding');
+        } else {
+            setAppState('login');
+        }
     }, []);
 
-    // Generate course
-    const handleGenerateCourse = async (profile: UserProfile) => {
-        setUser(profile);
-        setCurrentUser(profile.username || profile.name);
-        await saveUser(profile.username || profile.name, profile);
+    const handleLogin = (name: string) => {
+        setCurrentUser(name);
 
-        setAppState('dashboard');
-        setIsLoadingCourse(true);
-
-        try {
-            const syllabus = await generateSyllabus(profile);
-            const modules: Module[] = syllabus.map((title, idx) => ({
-                id: `mod-${idx}`,
-                title,
-                description: `Master ${title} in English`,
-                isCompleted: false,
-                isGenerated: false,
-                lessons: []
-            }));
-
-            const newCourse: Course = {
-                id: `course-${Date.now()}`,
-                title: `English Journey: ${profile.currentLevel} → ${profile.targetLevel}`,
-                description: `Personalized for: ${profile.interests.join(', ')}`,
-                modules,
-                syllabus
-            };
-
-            setCourse(newCourse);
-            await saveCourse(profile.username || profile.name, newCourse);
-            confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
-        } catch (e: any) {
-            setError(e.message || 'Error generating course');
-        } finally {
-            setIsLoadingCourse(false);
-        }
-    };
-
-    // Login handler
-    const handleLogin = async (username: string) => {
-        const userData = await getUser(username);
-        if (userData) {
-            setUser(userData);
-            setCurrentUser(username);
-            const savedCourse = await getCourse(username);
-            if (savedCourse) setCourse(savedCourse);
+        // Check if profile exists
+        const existingProfile = localStorage.getItem(`profesoria_profile_${name}`);
+        if (existingProfile) {
+            setProfile(JSON.parse(existingProfile));
             setAppState('dashboard');
         } else {
             setAppState('onboarding');
         }
     };
 
-    // Logout handler
+    const handleOnboardingComplete = (newProfile: UserProfile) => {
+        setProfile(newProfile);
+        localStorage.setItem(`profesoria_profile_${currentUser}`, JSON.stringify(newProfile));
+        setAppState('dashboard');
+    };
+
+    const handleSelectScenario = (scenario: ConversationScenario) => {
+        setSelectedScenario(scenario);
+        setAppState('chat');
+    };
+
+    const handleBackToDashboard = () => {
+        setSelectedScenario(null);
+        setAppState('dashboard');
+    };
+
     const handleLogout = () => {
-        clearCurrentUser();
-        setUser(null);
-        setCourse(null);
+        setCurrentUser(null);
+        setProfile(null);
         setAppState('login');
     };
 
-    // Open module
-    const handleOpenModule = async (moduleId: string) => {
-        if (!course || !user) return;
-        const module = course.modules.find(m => m.id === moduleId);
-        if (!module) return;
-
-        setActiveModuleId(moduleId);
-        setAppState('module');
-
-        if (!module.isGenerated) {
-            setIsLoadingModule(true);
-            try {
-                const lessonTitles = await generateModuleLessons(module.title, user.currentLevel);
-                const lessons: Lesson[] = lessonTitles.map((title, idx) => ({
-                    id: `${module.id}-lesson-${idx}`,
-                    title,
-                    description: `Step ${idx + 1}`,
-                    isCompleted: false
-                }));
-
-                const updatedCourse: Course = {
-                    ...course,
-                    modules: course.modules.map(m =>
-                        m.id === moduleId ? { ...m, lessons, isGenerated: true } : m
-                    )
-                };
-                setCourse(updatedCourse);
-                await saveCourse(user.username || user.name, updatedCourse);
-            } catch (e: any) {
-                setError(e.message);
-            } finally {
-                setIsLoadingModule(false);
-            }
-        }
-    };
-
-    // Open lesson
-    const handleOpenLesson = async (lessonId: string) => {
-        if (!course || !activeModuleId || !user) return;
-        const module = course.modules.find(m => m.id === activeModuleId);
-        if (!module) return;
-        const lesson = module.lessons.find(l => l.id === lessonId);
-        if (!lesson) return;
-
-        setActiveLessonId(lessonId);
-        setAppState('lesson');
-
-        if (!lesson.content) {
-            setIsLoadingLesson(true);
-            try {
-                const content = await generateInteractiveContent(lesson.title, user.currentLevel, module.title);
-                const updatedCourse: Course = {
-                    ...course,
-                    modules: course.modules.map(m =>
-                        m.id === activeModuleId
-                            ? { ...m, lessons: m.lessons.map(l => l.id === lessonId ? { ...l, content } : l) }
-                            : m
-                    )
-                };
-                setCourse(updatedCourse);
-                await saveCourse(user.username || user.name, updatedCourse);
-            } catch (e: any) {
-                setError(e.message);
-            } finally {
-                setIsLoadingLesson(false);
-            }
-        }
-    };
-
-    // Complete lesson
-    const handleLessonComplete = async (score: number) => {
-        if (!course || !activeModuleId || !activeLessonId || !user) return;
-
-        const xpEarned = Math.floor(score * 0.5);
-        const { leveledUp } = awardXP(xpEarned);
-        recordActivity();
-
-        const updatedCourse: Course = {
-            ...course,
-            modules: course.modules.map(m => {
-                if (m.id !== activeModuleId) return m;
-                const updatedLessons = m.lessons.map(l =>
-                    l.id === activeLessonId ? { ...l, isCompleted: true, score } : l
-                );
-                const allComplete = updatedLessons.every(l => l.isCompleted);
-                return { ...m, lessons: updatedLessons, isCompleted: allComplete };
-            })
-        };
-
-        setCourse(updatedCourse);
-        await saveCourse(user.username || user.name, updatedCourse);
-
-        if (score >= 80) confetti({ particleCount: 50, spread: 60 });
-        if (leveledUp) confetti({ particleCount: 150, spread: 100 });
-
-        setActiveLessonId(null);
-        setAppState('module');
-    };
-
-    // Active data
-    const activeModule = useMemo(() => course?.modules.find(m => m.id === activeModuleId), [course, activeModuleId]);
-    const activeLesson = useMemo(() => activeModule?.lessons.find(l => l.id === activeLessonId), [activeModule, activeLessonId]);
-
-    const completedModules = course?.modules.filter(m => m.isCompleted).length || 0;
-    const totalModules = course?.modules.length || 0;
-    const courseProgress = totalModules > 0 ? (completedModules / totalModules) * 100 : 0;
-
-    const getGreeting = () => {
-        const hour = new Date().getHours();
-        if (hour < 12) return '¡Buenos días';
-        if (hour < 18) return '¡Buenas tardes';
-        return '¡Buenas noches';
-    };
-
-    // ============================================
-    // RENDER
-    // ============================================
-
-    if (appState === 'loading') {
-        return (
-            <div className="loading-screen">
-                <Loader2 className="spinning" size={48} />
-                <p>Cargando...</p>
-            </div>
-        );
-    }
-
-    if (appState === 'login') {
-        return <LoginScreen onLogin={handleLogin} />;
-    }
-
-    if (appState === 'onboarding') {
-        return <OnboardingScreen onComplete={handleGenerateCourse} />;
-    }
-
-    if (appState === 'module' && activeModule) {
-        const completedLessons = activeModule.lessons.filter(l => l.isCompleted).length;
-        return (
-            <div className="module-view">
-                <header className="module-header">
-                    <button className="back-btn" onClick={() => { setActiveModuleId(null); setAppState('dashboard'); }}>
-                        <ChevronLeft size={20} /> Volver
-                    </button>
-                    <div className="module-info">
-                        <h1>{activeModule.title}</h1>
-                        <p>{completedLessons}/{activeModule.lessons.length} lecciones completadas</p>
+    // Render based on state
+    switch (appState) {
+        case 'loading':
+            return (
+                <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-600 to-pink-600">
+                    <div className="text-white text-center">
+                        <div className="text-5xl mb-4">🎓</div>
+                        <p className="text-lg">Cargando...</p>
                     </div>
-                </header>
-
-                <div className="lessons-list">
-                    {isLoadingModule ? (
-                        <div className="generating">
-                            <Loader2 className="spinning" size={40} />
-                            <p>Generando lecciones...</p>
-                        </div>
-                    ) : (
-                        activeModule.lessons.map((lesson, idx) => {
-                            const isLocked = idx > 0 && !activeModule.lessons[idx - 1].isCompleted;
-                            return (
-                                <motion.div
-                                    key={lesson.id}
-                                    className={`lesson-item ${lesson.isCompleted ? 'completed' : ''} ${isLocked ? 'locked' : ''}`}
-                                    onClick={() => !isLocked && handleOpenLesson(lesson.id)}
-                                    initial={{ opacity: 0, x: -20 }}
-                                    animate={{ opacity: 1, x: 0 }}
-                                    transition={{ delay: idx * 0.05 }}
-                                    whileHover={!isLocked ? { x: 8 } : {}}
-                                >
-                                    <span className="lesson-number">{idx + 1}</span>
-                                    <span className="lesson-title">{lesson.title}</span>
-                                    {lesson.isCompleted && <span className="lesson-score">{lesson.score}%</span>}
-                                    {isLocked && <Lock size={16} className="lesson-lock" />}
-                                </motion.div>
-                            );
-                        })
-                    )}
                 </div>
-            </div>
-        );
-    }
+            );
 
-    if (appState === 'lesson' && activeLesson && activeModule) {
-        return (
-            <LessonView
-                lesson={activeLesson}
-                moduleTitle={activeModule.title}
-                userLevel={user?.currentLevel || 'A1'}
-                isLoading={isLoadingLesson}
-                onBack={() => { setActiveLessonId(null); setAppState('module'); }}
-                onComplete={handleLessonComplete}
-            />
-        );
-    }
+        case 'login':
+            return <LoginScreen onLogin={handleLogin} />;
 
-    // Dashboard
-    return (
-        <div className="dashboard">
-            {error && (
-                <motion.div className="error-toast" initial={{ y: -50 }} animate={{ y: 0 }}>
-                    <span>{error}</span>
-                    <button onClick={() => setError(null)}>×</button>
-                </motion.div>
-            )}
+        case 'onboarding':
+            return <OnboardingScreen name={currentUser!} onComplete={handleOnboardingComplete} />;
 
-            <header className="dashboard-header">
-                <div className="dashboard-greeting">
-                    <h1>{getGreeting()}, <span className="user-name">{user?.name}</span>! 👋</h1>
-                    <p className="user-level">Nivel {user?.currentLevel} → {user?.targetLevel}</p>
-                </div>
-                <div className="dashboard-actions">
-                    <motion.button className="action-btn" onClick={() => setIsDarkMode(!isDarkMode)} whileHover={{ scale: 1.1 }}>
-                        {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
-                    </motion.button>
-                    <motion.button className="action-btn" onClick={() => setShowTutor(true)} whileHover={{ scale: 1.1 }}>
-                        <Settings size={20} />
-                    </motion.button>
-                    <motion.button className="action-btn logout" onClick={handleLogout} whileHover={{ scale: 1.1 }}>
-                        <LogOut size={20} />
-                    </motion.button>
-                </div>
-            </header>
-
-            <div className="dashboard-stats">
-                <motion.div className="stat-card streak" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-                    <StreakCounter currentStreak={currentStreak} longestStreak={longestStreak} hasActivityToday={hasActivityToday()} />
-                </motion.div>
-
-                <motion.div className="stat-card level" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-                    <ProgressRing progress={getLevelProgress()} size={100} color="#3B82F6">
-                        <div className="level-badge">
-                            <Zap size={20} />
-                            <span>{level}</span>
-                        </div>
-                    </ProgressRing>
-                    <div className="stat-info">
-                        <span className="stat-label">Nivel</span>
-                        <span className="stat-value">{totalXP} XP</span>
-                    </div>
-                </motion.div>
-
-                <motion.div className="stat-card progress" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
-                    <ProgressRing progress={courseProgress} size={100} label="Curso" />
-                    <div className="stat-info">
-                        <span className="stat-label">Módulos</span>
-                        <span className="stat-value">{completedModules}/{totalModules}</span>
-                    </div>
-                </motion.div>
-
-                <motion.div
-                    className="stat-card quick-practice"
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.4 }}
-                    onClick={() => setShowTutor(true)}
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                >
-                    <div className="quick-practice-content">
-                        <Play size={32} />
-                        <span>Chat Tutor AI</span>
-                    </div>
-                </motion.div>
-            </div>
-
-            <section className="dashboard-modules">
-                <h2><BookOpen size={20} /> Tu Curso</h2>
-
-                {isLoadingCourse ? (
-                    <div className="loading-course">
-                        <Loader2 className="spinning" size={40} />
-                        <p>Generando tu curso personalizado...</p>
-                        <p className="loading-subtitle">Esto puede tomar unos segundos</p>
-                    </div>
-                ) : course ? (
-                    <div className="modules-grid">
-                        {course.modules.slice(0, 12).map((module, index) => (
-                            <ModuleCard
-                                key={module.id}
-                                module={module}
-                                index={index}
-                                isLocked={index > 0 && !course.modules[index - 1]?.isCompleted}
-                                onClick={() => handleOpenModule(module.id)}
-                                isLoading={isLoadingModule && activeModuleId === module.id}
-                            />
-                        ))}
-                    </div>
-                ) : (
-                    <div className="no-course">
-                        <Target size={48} />
-                        <p>No hay curso disponible</p>
-                        <p className="no-course-subtitle">Configura tu API Key en ajustes</p>
-                    </div>
-                )}
-
-                {course && course.modules.length > 12 && (
-                    <div className="modules-more">+{course.modules.length - 12} módulos más</div>
-                )}
-            </section>
-
-            {showTutor && user && (
-                <LiveTutorModal
-                    isOpen={showTutor}
-                    onClose={() => setShowTutor(false)}
-                    userLevel={user.currentLevel}
-                    voiceName={user.voice || 'Kore'}
+        case 'dashboard':
+            return (
+                <DashboardScreen
+                    profile={profile!}
+                    streak={streak}
+                    xp={xp}
+                    onSelectScenario={handleSelectScenario}
+                    onLogout={handleLogout}
                 />
-            )}
-        </div>
-    );
-};
+            );
 
-// ============================================
-// SUB-SCREENS
-// ============================================
+        case 'chat':
+            return (
+                <ChatScreen
+                    scenario={selectedScenario!}
+                    profile={profile!}
+                    onBack={handleBackToDashboard}
+                    onAddXp={addXp}
+                />
+            );
 
-const LoginScreen: React.FC<{ onLogin: (username: string) => void }> = ({ onLogin }) => {
-    const [username, setUsername] = useState('');
-
-    return (
-        <div className="login-screen">
-            <motion.div className="login-card" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }}>
-                <h1>🎓 Profesoria</h1>
-                <h2>English Mastery</h2>
-                <p>Tu camino hacia la fluidez en inglés</p>
-
-                <form onSubmit={(e) => { e.preventDefault(); if (username.trim()) onLogin(username.trim()); }}>
-                    <input
-                        type="text"
-                        placeholder="Tu nombre"
-                        value={username}
-                        onChange={(e) => setUsername(e.target.value)}
-                        autoFocus
-                    />
-                    <button type="submit" disabled={!username.trim()}>Comenzar</button>
-                </form>
-            </motion.div>
-        </div>
-    );
-};
-
-const OnboardingScreen: React.FC<{ onComplete: (profile: UserProfile) => void }> = ({ onComplete }) => {
-    const [step, setStep] = useState(0);
-    const [name, setName] = useState('');
-    const [currentLevel, setCurrentLevel] = useState<CEFRLevel>(CEFRLevel.A1);
-    const [targetLevel, setTargetLevel] = useState<CEFRLevel>(CEFRLevel.B2);
-    const [interests, setInterests] = useState<string[]>([]);
-
-    const levels = Object.values(CEFRLevel);
-    const interestOptions = ['Viajes', 'Negocios', 'Tecnología', 'Música', 'Películas', 'Deportes', 'Ciencia', 'Arte', 'Cocina', 'Naturaleza'];
-
-    const handleComplete = () => {
-        onComplete({
-            name,
-            username: name.toLowerCase().replace(/\s+/g, '_'),
-            currentLevel,
-            targetLevel,
-            interests: interests.length > 0 ? interests : ['General'],
-            learningStyle: 'practical',
-            dailyGoalMins: 15
-        });
-    };
-
-    const toggleInterest = (interest: string) => {
-        setInterests(prev => prev.includes(interest) ? prev.filter(i => i !== interest) : [...prev, interest]);
-    };
-
-    return (
-        <div className="onboarding-screen">
-            <motion.div className="onboarding-card" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }}>
-                {step === 0 && (
-                    <>
-                        <h2>¿Cómo te llamas?</h2>
-                        <input type="text" placeholder="Tu nombre" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
-                        <button onClick={() => setStep(1)} disabled={!name.trim()}>Siguiente</button>
-                    </>
-                )}
-
-                {step === 1 && (
-                    <>
-                        <h2>¿Cuál es tu nivel actual?</h2>
-                        <div className="level-grid">
-                            {levels.map(lvl => (
-                                <button key={lvl} className={`level-btn ${currentLevel === lvl ? 'active' : ''}`} onClick={() => setCurrentLevel(lvl)}>
-                                    {lvl}
-                                </button>
-                            ))}
-                        </div>
-                        <button onClick={() => setStep(2)}>Siguiente</button>
-                    </>
-                )}
-
-                {step === 2 && (
-                    <>
-                        <h2>¿Qué nivel quieres alcanzar?</h2>
-                        <div className="level-grid">
-                            {levels.filter(l => l >= currentLevel).map(lvl => (
-                                <button key={lvl} className={`level-btn ${targetLevel === lvl ? 'active' : ''}`} onClick={() => setTargetLevel(lvl)}>
-                                    {lvl}
-                                </button>
-                            ))}
-                        </div>
-                        <button onClick={() => setStep(3)}>Siguiente</button>
-                    </>
-                )}
-
-                {step === 3 && (
-                    <>
-                        <h2>¿Qué te interesa?</h2>
-                        <div className="interests-grid">
-                            {interestOptions.map(interest => (
-                                <button key={interest} className={`interest-btn ${interests.includes(interest) ? 'active' : ''}`} onClick={() => toggleInterest(interest)}>
-                                    {interest}
-                                </button>
-                            ))}
-                        </div>
-                        <button onClick={handleComplete}>¡Empezar a aprender!</button>
-                    </>
-                )}
-            </motion.div>
-        </div>
-    );
-};
-
-const LessonView: React.FC<{
-    lesson: Lesson;
-    moduleTitle: string;
-    userLevel: string;
-    isLoading: boolean;
-    onBack: () => void;
-    onComplete: (score: number) => void;
-}> = ({ lesson, moduleTitle, userLevel, isLoading, onBack, onComplete }) => {
-    const [currentStep, setCurrentStep] = useState(0);
-    const [score, setScore] = useState(100);
-
-    if (isLoading || !lesson.content) {
-        return (
-            <div className="lesson-view loading-lesson">
-                <Loader2 className="spinning" size={48} />
-                <p>Preparando tu lección...</p>
-            </div>
-        );
+        default:
+            return null;
     }
-
-    const content = lesson.content;
-    const steps = ['Vocabulario', 'Quiz', 'Pronunciación', 'Conversación'];
-
-    const handleStepComplete = (stepScore?: number) => {
-        if (stepScore !== undefined) setScore(prev => Math.min(prev, stepScore));
-        if (currentStep < steps.length - 1) {
-            setCurrentStep(prev => prev + 1);
-        } else {
-            onComplete(score);
-        }
-    };
-
-    return (
-        <div className="lesson-view">
-            <header className="lesson-header">
-                <button className="back-btn" onClick={onBack}><ChevronLeft size={20} /> Salir</button>
-                <div className="lesson-progress-dots">
-                    {steps.map((s, idx) => (
-                        <div key={s} className={`step-dot ${idx < currentStep ? 'done' : ''} ${idx === currentStep ? 'active' : ''}`} />
-                    ))}
-                </div>
-                <span className="lesson-step-label">{steps[currentStep]}</span>
-            </header>
-
-            <div className="lesson-content">
-                {currentStep === 0 && content.vocabulary && (
-                    <VocabularyCards vocabulary={content.vocabulary} onComplete={() => handleStepComplete()} />
-                )}
-
-                {currentStep === 1 && content.quiz && (
-                    <Quiz questions={content.quiz} onComplete={(quizScore) => handleStepComplete(quizScore)} />
-                )}
-
-                {currentStep === 2 && (
-                    <PronunciationDrill
-                        targetPhrase={content.conversation?.turns?.[0]?.text || lesson.title}
-                        userLevel={userLevel}
-                        onComplete={(pronScore) => handleStepComplete(pronScore)}
-                    />
-                )}
-
-                {currentStep === 3 && (
-                    <div className="conversation-step">
-                        <h2>Conversación práctica</h2>
-                        {content.conversation?.turns?.map((turn, idx) => (
-                            <div key={idx} className={`turn ${turn.speaker.toLowerCase()}`}>
-                                <strong>{turn.speaker}:</strong>
-                                <span>{turn.text}</span>
-                                {turn.translation && <em>({turn.translation})</em>}
-                            </div>
-                        ))}
-                        <button className="finish-btn" onClick={() => handleStepComplete()}>¡Terminé!</button>
-                    </div>
-                )}
-            </div>
-        </div>
-    );
 };
 
 export default App;
