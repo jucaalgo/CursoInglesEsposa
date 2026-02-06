@@ -1,0 +1,7 @@
+{
+  "name": "ProfesorIA: English Mastery",
+  "description": "An AI-powered adaptive English learning platform with real-time voice interaction, CEFR-aligned course generation, and pronunciation feedback.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
