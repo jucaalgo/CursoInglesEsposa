@@ -83,13 +83,16 @@ export const RepositoryService = {
             .from('profesoria_modules')
             .select('*, profesoria_lessons(*)')
             .eq('user_id', userId)
-            .order('order_index');
+            .order('order_index', { ascending: true });
 
-        if (modError) throw modError;
+        if (modError) {
+            console.error("Supabase getFullCourse error:", modError);
+            throw modError;
+        }
         if (!modules || modules.length === 0) return null;
 
         return {
-            id: 'default_course', // Or map from elsewhere
+            id: 'default_course',
             title: 'English Mastery',
             description: 'Your custom path',
             modules: modules.map((m: any) => ({
@@ -98,14 +101,16 @@ export const RepositoryService = {
                 description: m.description,
                 isCompleted: m.status === 'completed',
                 isGenerated: true,
-                lessons: m.profesoria_lessons.map((l: any) => ({
-                    id: l.id,
-                    title: l.title,
-                    description: '',
-                    isCompleted: l.is_completed,
-                    score: l.score,
-                    content: l.content
-                })).sort((a: any, b: any) => (a.order_index - b.order_index))
+                lessons: (m.profesoria_lessons || [])
+                    .sort((a: any, b: any) => (a.order_index || 0) - (b.order_index || 0))
+                    .map((l: any) => ({
+                        id: l.id,
+                        title: l.title,
+                        description: '',
+                        isCompleted: l.is_completed,
+                        score: l.score,
+                        content: l.content
+                    }))
             }))
         };
     }
