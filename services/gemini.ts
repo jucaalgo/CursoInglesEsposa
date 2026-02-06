@@ -101,36 +101,9 @@ export const playRawAudio = async (base64Str: string) => {
 // --- VISUALS ---
 
 export const generateLessonImage = async (promptText: string, aspectRatio: string = '16:9'): Promise<string | null> => {
-  try {
-    const client = getClient();
-    const response = await client.models.generateContent({
-      model: 'gemini-2.5-flash-image',
-      contents: {
-        parts: [{
-          text: `Create a modern, minimalist, vector-style flat illustration representing: "${promptText}". Use soft, educational colors. No text in the image.`
-        }]
-      },
-      config: {
-        imageConfig: {
-          aspectRatio: aspectRatio
-        }
-      },
-    });
-
-    // Safe access
-    const parts = response.candidates?.[0]?.content?.parts;
-    if (parts) {
-      for (const part of parts) {
-        if (part.inlineData && part.inlineData.data) {
-          return `data:image/png;base64,${part.inlineData.data}`;
-        }
-      }
-    }
-    return null;
-  } catch (error) {
-    console.warn("Image generation failed", error);
-    return null;
-  }
+  // TEMPORARILY DISABLED: Image generation quota exhausted
+  console.log("Image generation disabled (quota exhausted)");
+  return null;
 };
 
 // --- COURSE GENERATION (HIERARCHICAL) ---
