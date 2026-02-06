@@ -79,18 +79,33 @@ export const RepositoryService = {
     },
 
     getFullCourse: async (userId: string): Promise<Course | null> => {
+        // Step 1: Get modules
         const { data: modules, error: modError } = await supabase
             .from('profesoria_modules')
-            .select('*, profesoria_lessons(*)')
+            .select('*')
             .eq('user_id', userId)
             .order('order_index', { ascending: true });
 
         if (modError) {
-            console.error("Supabase getFullCourse error:", modError);
+            console.error("Supabase getFullCourse modules error:", modError);
             throw modError;
         }
         if (!modules || modules.length === 0) return null;
 
+        // Step 2: Get all lessons for this user's modules
+        const moduleIds = modules.map(m => m.id);
+        const { data: lessons, error: lessError } = await supabase
+            .from('profesoria_lessons')
+            .select('*')
+            .in('module_id', moduleIds)
+            .order('order_index', { ascending: true });
+
+        if (lessError) {
+            console.error("Supabase getFullCourse lessons error:", lessError);
+            throw lessError;
+        }
+
+        // Step 3: Group lessons by module
         return {
             id: 'default_course',
             title: 'English Mastery',
@@ -101,8 +116,8 @@ export const RepositoryService = {
                 description: m.description,
                 isCompleted: m.status === 'completed',
                 isGenerated: true,
-                lessons: (m.profesoria_lessons || [])
-                    .sort((a: any, b: any) => (a.order_index || 0) - (b.order_index || 0))
+                lessons: (lessons || [])
+                    .filter((l: any) => l.module_id === m.id)
                     .map((l: any) => ({
                         id: l.id,
                         title: l.title,
