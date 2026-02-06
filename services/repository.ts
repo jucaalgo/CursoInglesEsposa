@@ -130,3 +130,80 @@ export const RepositoryService = {
         };
     }
 };
+
+// ============================================
+// HELPER FUNCTIONS FOR LOCAL STORAGE
+// ============================================
+
+const CURRENT_USER_KEY = 'profesoria_current_user';
+const USER_PREFIX = 'profesoria_user_';
+const COURSE_PREFIX = 'profesoria_course_';
+
+// Current user session management
+export const getCurrentUser = (): string | null => {
+    return localStorage.getItem(CURRENT_USER_KEY);
+};
+
+export const setCurrentUser = (username: string): void => {
+    localStorage.setItem(CURRENT_USER_KEY, username);
+};
+
+export const clearCurrentUser = (): void => {
+    localStorage.removeItem(CURRENT_USER_KEY);
+};
+
+// User profile management (localStorage fallback)
+export const getUser = async (username: string): Promise<UserProfile | null> => {
+    try {
+        const dbProfile = await RepositoryService.getProfileByUsername(username);
+        if (dbProfile) {
+            return {
+                name: dbProfile.username,
+                username: dbProfile.username,
+                currentLevel: dbProfile.english_level || 'A1',
+                targetLevel: dbProfile.target_level || 'B2',
+                interests: dbProfile.interests || ['General'],
+                learningStyle: 'practical',
+                dailyGoalMins: 15
+            };
+        }
+    } catch (e) {
+        console.error('DB getUser error:', e);
+    }
+    // Fallback to localStorage
+    const stored = localStorage.getItem(USER_PREFIX + username);
+    return stored ? JSON.parse(stored) : null;
+};
+
+export const saveUser = async (username: string, profile: UserProfile): Promise<void> => {
+    try {
+        await RepositoryService.upsertProfile({ ...profile, username });
+    } catch (e) {
+        console.error('DB saveUser error:', e);
+    }
+    // Always save to localStorage as backup
+    localStorage.setItem(USER_PREFIX + username, JSON.stringify(profile));
+};
+
+// Course management (localStorage fallback)
+export const getCourse = async (username: string): Promise<Course | null> => {
+    try {
+        const dbCourse = await RepositoryService.getFullCourse(username);
+        if (dbCourse) return dbCourse;
+    } catch (e) {
+        console.error('DB getCourse error:', e);
+    }
+    // Fallback to localStorage
+    const stored = localStorage.getItem(COURSE_PREFIX + username);
+    return stored ? JSON.parse(stored) : null;
+};
+
+export const saveCourse = async (username: string, course: Course): Promise<void> => {
+    try {
+        await RepositoryService.saveFullCourse(username, course);
+    } catch (e) {
+        console.error('DB saveCourse error:', e);
+    }
+    // Always save to localStorage as backup
+    localStorage.setItem(COURSE_PREFIX + username, JSON.stringify(course));
+};
