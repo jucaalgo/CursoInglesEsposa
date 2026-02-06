@@ -984,14 +984,22 @@ const App: React.FC = () => {
         const lesIndex = mod.lessons.findIndex(l => l.id === lessonId);
         const lesson = mod.lessons[lesIndex];
 
-        if (!lesson.content) {
+        // Check if content exists AND has exercises. If not, generate.
+        const isEmpty = !lesson.content || !lesson.content.fillInBlanks || lesson.content.fillInBlanks.length === 0;
+
+        if (isEmpty) {
             setLoading(true);
             try {
                 const content = await GeminiService.generateInteractiveContent(lesson.title, user.currentLevel, mod.title);
-                const updatedCourse = { ...course };
+
+                // Deep clone to avoid mutation
+                const updatedCourse = JSON.parse(JSON.stringify(course));
                 updatedCourse.modules[modIndex].lessons[lesIndex].content = content;
+
                 await saveProgress(user, updatedCourse);
+                setCourse(updatedCourse); // Update state properly
             } catch (e) {
+                console.error(e);
                 alert("Failed to generate content. Ensure API Key is valid.");
             } finally {
                 setLoading(false);
