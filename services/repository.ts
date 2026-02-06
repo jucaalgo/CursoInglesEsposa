@@ -1,9 +1,51 @@
 import { supabase } from './supabase';
-import { UserProfile, Course, Module, Lesson } from '../types';
 
-export const RepositoryService = {
-    // 1. Profile Management
-    getProfileByUsername: async (username: string) => {
+// ============================================
+// TYPES
+// ============================================
+export interface Profile {
+    username: string;
+    name: string;
+    current_level: string;
+    target_level: string;
+    interests: string[];
+    xp_total: number;
+    streak_count: number;
+    last_practice_at?: string;
+}
+
+export interface Session {
+    id?: string;
+    username: string;
+    session_type: 'call' | 'vocab' | 'pronunciation' | 'roleplay';
+    scenario?: string;
+    duration_seconds: number;
+    xp_earned: number;
+    score?: number;
+    details?: any;
+    created_at?: string;
+}
+
+export interface PronunciationResult {
+    id?: string;
+    username: string;
+    phrase: string;
+    score: number;
+    word_analysis?: any;
+    feedback: string;
+    created_at?: string;
+}
+
+// ============================================
+// PROFILE MANAGEMENT
+// ============================================
+
+/**
+ * Get user profile from Supabase
+ * Falls back to localStorage if Supabase fails
+ */
+export const getProfile = async (username: string): Promise<Profile | null> => {
+    try {
         const { data, error } = await supabase
             .from('profesoria_profiles')
             .select('*')
@@ -11,167 +53,230 @@ export const RepositoryService = {
             .single();
 
         if (error) {
-            if (error.code === 'PGRST116') return null; // Not found
+            if (error.code === 'PGRST116') {
+                // Not found in Supabase, check localStorage
+                return getProfileFromLocalStorage(username);
+            }
             throw error;
         }
+
+        // Save to localStorage as cache
+        saveProfileToLocalStorage(username, data);
         return data;
-    },
+    } catch (error) {
+        console.warn('Supabase getProfile failed, using localStorage:', error);
+        return getProfileFromLocalStorage(username);
+    }
+};
 
-    upsertProfile: async (profile: UserProfile) => {
-        // Deterministic ID for anonymous users based on username
-        // In a real app with Auth, we would use the real User ID.
-        // For this demo, we'll try to find an existing profile by username first to get the ID
-        const existing = await RepositoryService.getProfileByUsername(profile.username!);
-        const id = existing?.id || crypto.randomUUID();
+/**
+ * Save user profile to Supabase
+ * Also saves to localStorage as backup
+ */
+export const saveProfile = async (username: string, profile: Partial<Profile>): Promise<void> => {
+    const fullProfile: Profile = {
+        username,
+        name: profile.name || username,
+        current_level: profile.current_level || 'A2',
+        target_level: profile.target_level || 'B2',
+        interests: profile.interests || [],
+        xp_total: profile.xp_total || 0,
+        streak_count: profile.streak_count || 0,
+        last_practice_at: profile.last_practice_at
+    };
 
+    // Save to localStorage first (always succeeds)
+    saveProfileToLocalStorage(username, fullProfile);
+
+    // Try to save to Supabase
+    try {
         const { error } = await supabase
             .from('profesoria_profiles')
-            .upsert({
-                id: id,
-                username: profile.username,
-                english_level: profile.currentLevel,
-                interests: profile.interests,
-                xp_total: 0,
-                updated_at: new Date().toISOString()
-            }, { onConflict: 'username' });
+            .upsert(fullProfile, { onConflict: 'username' });
 
         if (error) throw error;
-    },
+    } catch (error) {
+        console.warn('Supabase saveProfile failed, data saved to localStorage only:', error);
+    }
+};
 
-    // 2. Course/Module/Lesson Management
-    // This is a more complex refactor because of the nested structure.
-    // We'll implement a 'saveCourse' that breaks it down.
-    saveFullCourse: async (userId: string, course: Course) => {
-        // Save Modules
-        for (const [modIndex, module] of course.modules.entries()) {
-            const { data: modData, error: modError } = await supabase
-                .from('profesoria_modules')
-                .upsert({
-                    id: module.id,
-                    user_id: userId,
-                    title: module.title,
-                    description: module.description,
-                    status: module.isCompleted ? 'completed' : 'unlocked',
-                    order_index: modIndex
-                })
-                .select()
-                .single();
+/**
+ * Update user XP and streak
+ */
+export const updateProgress = async (username: string, xpEarned: number): Promise<void> => {
+    const profile = await getProfile(username);
+    if (!profile) return;
 
-            if (modError) throw modError;
+    const today = new Date().toDateString();
+    const lastPractice = profile.last_practice_at ? new Date(profile.last_practice_at).toDateString() : null;
+    const yesterday = new Date(Date.now() - 86400000).toDateString();
 
-            // Save Lessons for this module
-            for (const [lessIndex, lesson] of module.lessons.entries()) {
-                const { error: lessError } = await supabase
-                    .from('profesoria_lessons')
-                    .upsert({
-                        id: lesson.id,
-                        module_id: module.id,
-                        title: lesson.title,
-                        content: lesson.content,
-                        score: lesson.score || 0,
-                        is_completed: lesson.isCompleted,
-                        order_index: lessIndex
-                    });
+    let newStreak = profile.streak_count;
+    if (lastPractice !== today) {
+        // New day
+        newStreak = lastPractice === yesterday ? newStreak + 1 : 1;
+    }
 
-                if (lessError) throw lessError;
-            }
-        }
-    },
+    await saveProfile(username, {
+        ...profile,
+        xp_total: profile.xp_total + xpEarned,
+        streak_count: newStreak,
+        last_practice_at: new Date().toISOString()
+    });
+};
 
-    getFullCourse: async (userId: string): Promise<Course | null> => {
-        // Step 1: Get modules
-        const { data: modules, error: modError } = await supabase
-            .from('profesoria_modules')
+// ============================================
+// SESSION MANAGEMENT
+// ============================================
+
+/**
+ * Save a practice session
+ */
+export const saveSession = async (session: Session): Promise<void> => {
+    // Save to localStorage
+    saveSessionToLocalStorage(session);
+
+    // Try to save to Supabase
+    try {
+        const { error } = await supabase
+            .from('profesoria_sessions')
+            .insert({
+                username: session.username,
+                session_type: session.session_type,
+                scenario: session.scenario,
+                duration_seconds: session.duration_seconds,
+                xp_earned: session.xp_earned,
+                score: session.score,
+                details: session.details
+            });
+
+        if (error) throw error;
+    } catch (error) {
+        console.warn('Supabase saveSession failed, data saved to localStorage only:', error);
+    }
+};
+
+/**
+ * Get user session history
+ */
+export const getSessions = async (username: string, limit: number = 10): Promise<Session[]> => {
+    try {
+        const { data, error } = await supabase
+            .from('profesoria_sessions')
             .select('*')
-            .eq('user_id', userId)
-            .order('order_index', { ascending: true });
+            .eq('username', username)
+            .order('created_at', { ascending: false })
+            .limit(limit);
 
-        if (modError) {
-            console.error("Supabase getFullCourse modules error:", modError);
-            throw modError;
-        }
-        if (!modules || modules.length === 0) return null;
-
-        // Step 2: Get all lessons for this user's modules
-        const moduleIds = modules.map(m => m.id);
-        const { data: lessons, error: lessError } = await supabase
-            .from('profesoria_lessons')
-            .select('*')
-            .in('module_id', moduleIds)
-            .order('order_index', { ascending: true });
-
-        if (lessError) {
-            console.error("Supabase getFullCourse lessons error:", lessError);
-            throw lessError;
-        }
-
-        // Step 3: Group lessons by module
-        return {
-            id: 'default_course',
-            title: 'English Mastery',
-            description: 'Your custom path',
-            modules: modules.map((m: any) => ({
-                id: m.id,
-                title: m.title,
-                description: m.description,
-                isCompleted: m.status === 'completed',
-                isGenerated: true,
-                lessons: (lessons || [])
-                    .filter((l: any) => l.module_id === m.id)
-                    .map((l: any) => ({
-                        id: l.id,
-                        title: l.title,
-                        description: '',
-                        isCompleted: l.is_completed,
-                        score: l.score,
-                        content: l.content
-                    }))
-            }))
-        };
+        if (error) throw error;
+        return data || [];
+    } catch (error) {
+        console.warn('Supabase getSessions failed, using localStorage:', error);
+        return getSessionsFromLocalStorage(username, limit);
     }
 };
 
 // ============================================
-// HELPER FUNCTIONS FOR LOCAL STORAGE
+// PRONUNCIATION MANAGEMENT
 // ============================================
-// NOTA: Supabase está desactivado temporalmente porque el schema usa UUID
-// pero la app usa usernames. La app funciona perfectamente con localStorage.
-// Para activar Supabase, modificar el schema para usar TEXT en user_id.
 
-const CURRENT_USER_KEY = 'profesoria_current_user';
-const USER_PREFIX = 'profesoria_user_';
-const COURSE_PREFIX = 'profesoria_course_';
+/**
+ * Save pronunciation result
+ */
+export const savePronunciation = async (result: PronunciationResult): Promise<void> => {
+    // Save to localStorage
+    savePronunciationToLocalStorage(result);
 
-// Current user session management
-export const getCurrentUser = (): string | null => {
-    return localStorage.getItem(CURRENT_USER_KEY);
+    // Try to save to Supabase
+    try {
+        const { error } = await supabase
+            .from('profesoria_pronunciation')
+            .insert({
+                username: result.username,
+                phrase: result.phrase,
+                score: result.score,
+                word_analysis: result.word_analysis,
+                feedback: result.feedback
+            });
+
+        if (error) throw error;
+    } catch (error) {
+        console.warn('Supabase savePronunciation failed, data saved to localStorage only:', error);
+    }
 };
 
-export const setCurrentUser = (username: string): void => {
-    localStorage.setItem(CURRENT_USER_KEY, username);
+/**
+ * Get pronunciation history
+ */
+export const getPronunciations = async (username: string, limit: number = 10): Promise<PronunciationResult[]> => {
+    try {
+        const { data, error } = await supabase
+            .from('profesoria_pronunciation')
+            .select('*')
+            .eq('username', username)
+            .order('created_at', { ascending: false })
+            .limit(limit);
+
+        if (error) throw error;
+        return data || [];
+    } catch (error) {
+        console.warn('Supabase getPronunciations failed, using localStorage:', error);
+        return getPronunciationsFromLocalStorage(username, limit);
+    }
 };
 
-export const clearCurrentUser = (): void => {
-    localStorage.removeItem(CURRENT_USER_KEY);
-};
+// ============================================
+// LOCALSTORAGE FALLBACK
+// ============================================
 
-// User profile management (localStorage only for now)
-export const getUser = async (username: string): Promise<UserProfile | null> => {
-    const stored = localStorage.getItem(USER_PREFIX + username);
+const PROFILE_PREFIX = 'profesoria_profile_';
+const SESSIONS_PREFIX = 'profesoria_sessions_';
+const PRONUNCIATION_PREFIX = 'profesoria_pronunciation_';
+
+function getProfileFromLocalStorage(username: string): Profile | null {
+    const stored = localStorage.getItem(PROFILE_PREFIX + username);
     return stored ? JSON.parse(stored) : null;
-};
+}
 
-export const saveUser = async (username: string, profile: UserProfile): Promise<void> => {
-    localStorage.setItem(USER_PREFIX + username, JSON.stringify(profile));
-};
+function saveProfileToLocalStorage(username: string, profile: Profile): void {
+    localStorage.setItem(PROFILE_PREFIX + username, JSON.stringify(profile));
+}
 
-// Course management (localStorage only for now)
-export const getCourse = async (username: string): Promise<Course | null> => {
-    const stored = localStorage.getItem(COURSE_PREFIX + username);
-    return stored ? JSON.parse(stored) : null;
-};
+function saveSessionToLocalStorage(session: Session): void {
+    const sessions = getSessionsFromLocalStorage(session.username, 100);
+    sessions.unshift({ ...session, id: crypto.randomUUID(), created_at: new Date().toISOString() });
+    localStorage.setItem(SESSIONS_PREFIX + session.username, JSON.stringify(sessions));
+}
 
-export const saveCourse = async (username: string, course: Course): Promise<void> => {
-    localStorage.setItem(COURSE_PREFIX + username, JSON.stringify(course));
-};
+function getSessionsFromLocalStorage(username: string, limit: number): Session[] {
+    const stored = localStorage.getItem(SESSIONS_PREFIX + username);
+    const sessions: Session[] = stored ? JSON.parse(stored) : [];
+    return sessions.slice(0, limit);
+}
 
+function savePronunciationToLocalStorage(result: PronunciationResult): void {
+    const results = getPronunciationsFromLocalStorage(result.username, 100);
+    results.unshift({ ...result, id: crypto.randomUUID(), created_at: new Date().toISOString() });
+    localStorage.setItem(PRONUNCIATION_PREFIX + result.username, JSON.stringify(results));
+}
+
+function getPronunciationsFromLocalStorage(username: string, limit: number): PronunciationResult[] {
+    const stored = localStorage.getItem(PRONUNCIATION_PREFIX + username);
+    const results: PronunciationResult[] = stored ? JSON.parse(stored) : [];
+    return results.slice(0, limit);
+}
+
+// ============================================
+// UTILITIES
+// ============================================
+
+/**
+ * Check if Supabase is configured
+ */
+export const isSupabaseConfigured = (): boolean => {
+    // @ts-ignore
+    const url = import.meta.env?.VITE_SUPABASE_URL;
+    // @ts-ignore
+    const key = import.meta.env?.VITE_SUPABASE_ANON_KEY;
+    return !!(url && key);
+};

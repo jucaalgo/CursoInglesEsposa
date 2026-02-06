@@ -1,28 +1,25 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Mic, MicOff, Volume2, Send, ArrowLeft, Flame, Star, MessageCircle, BookOpen, Trophy, Settings, LogOut, Sparkles, Check, X, RefreshCw } from 'lucide-react';
-import { generateSpeech, playRawAudio, LiveSession } from './services/gemini';
-import { GoogleGenAI, Type } from "@google/genai";
+import { Mic, MicOff, Phone, PhoneOff, Volume2, ArrowLeft, Flame, Star, MessageCircle, LogOut, Sparkles, CheckCircle, XCircle, Book, Play, RotateCcw } from 'lucide-react';
+import { LiveSession, evaluatePronunciation, generateSpeech, playRawAudio, GoogleGenAI, Type } from './services/gemini';
+import { getProfile, saveProfile, updateProgress, saveSession, savePronunciation, getSessions, getPronunciations, Profile, Session, PronunciationResult } from './services/repository';
 
 // ============================================
 // TYPES
 // ============================================
-interface UserProfile {
-    name: string;
-    currentLevel: string;
-    targetLevel: string;
-    interests: string[];
+interface WordAnalysis {
+    word: string;
+    isCorrect: boolean;
+    errorType?: string;
+    suggestion?: string;
 }
 
-interface Message {
+interface VocabWord {
     id: string;
-    role: 'user' | 'tutor';
-    text: string;
-    correction?: {
-        original: string;
-        corrected: string;
-        explanation: string;
-    };
-    audio?: string;
+    word: string;
+    phonetic: string;
+    translation: string;
+    example: string;
+    level: string;
 }
 
 interface ConversationScenario {
@@ -31,337 +28,124 @@ interface ConversationScenario {
     titleEs: string;
     description: string;
     icon: string;
-    difficulty: 'easy' | 'medium' | 'hard';
     systemPrompt: string;
 }
 
-// ============================================
-// CONSTANTS
-// ============================================
-const LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
-
 const SCENARIOS: ConversationScenario[] = [
     {
-        id: 'daily',
-        title: 'Daily Chat',
-        titleEs: 'Charla Diaria',
-        description: 'Have a casual conversation about your day',
-        icon: '☕',
-        difficulty: 'easy',
-        systemPrompt: `You are a friendly English tutor having a casual conversation. 
-    Be warm, encouraging, and natural. Ask about their day, interests, and life.
-    Gently correct grammar mistakes inline like: "Almost! It's 'I went' not 'I go' 😊"
-    Keep responses short (1-2 sentences) to maintain natural dialogue flow.
-    Speak naturally, not like a textbook.`
+        id: 'tutor',
+        title: 'AI Tutor',
+        titleEs: '🎙️ Tutor de Voz',
+        description: 'Conversación en tiempo real',
+        icon: '🎙️',
+        systemPrompt: `You are an English tutor. Your student's level is {level}.
+
+CRITICAL RULES:
+1. ALWAYS speak in English
+2. Keep responses SHORT (1-2 sentences max)
+3. Be warm, encouraging, patient  
+4. If they make a mistake, correct gently: "Almost! It's 'I went' not 'I go'. Good try!"
+5. Speak naturally, like a friend
+6. Ask follow-up questions
+
+Start by greeting them warmly.`
     },
     {
         id: 'restaurant',
-        title: 'At a Restaurant',
-        titleEs: 'En el Restaurante',
-        description: 'Practice ordering food and drinks',
+        title: 'Restaurant',
+        titleEs: '🍽️ Restaurante',
+        description: 'Practica ordenar comida',
         icon: '🍽️',
-        difficulty: 'easy',
-        systemPrompt: `You are a waiter at a restaurant. Help the student practice ordering food.
-    Start by greeting them and asking what they'd like.
-    Gently correct any grammar mistakes inline.
-    Keep it natural and conversational. Short responses.`
-    },
-    {
-        id: 'job_interview',
-        title: 'Job Interview',
-        titleEs: 'Entrevista de Trabajo',
-        description: 'Practice common interview questions',
-        icon: '💼',
-        difficulty: 'medium',
-        systemPrompt: `You are a professional interviewer. Conduct a friendly but professional job interview.
-    Ask common questions: tell me about yourself, your strengths, why you want this job.
-    Give positive feedback and gentle corrections.
-    Keep responses professional but warm.`
-    },
-    {
-        id: 'travel',
-        title: 'Travel Planning',
-        titleEs: 'Planificando Viajes',
-        description: 'Discuss travel plans and destinations',
-        icon: '✈️',
-        difficulty: 'medium',
-        systemPrompt: `You are a travel agent helping someone plan a trip.
-    Ask about where they want to go, when, preferences.
-    Be enthusiastic about their choices.
-    Correct grammar gently and naturally.`
-    },
-    {
-        id: 'debate',
-        title: 'Friendly Debate',
-        titleEs: 'Debate Amistoso',
-        description: 'Discuss opinions on current topics',
-        icon: '💬',
-        difficulty: 'hard',
-        systemPrompt: `You are an intellectual discussion partner.
-    Discuss current topics, technology, society politely.
-    Challenge their ideas respectfully to encourage complex speech.
-    Correct advanced grammar subtly.`
-    },
-    {
-        id: 'free',
-        title: 'Free Practice',
-        titleEs: 'Práctica Libre',
-        description: 'Talk about anything you want',
-        icon: '🎯',
-        difficulty: 'easy',
-        systemPrompt: `You are a supportive English tutor. Let the student lead the conversation.
-    Be curious, ask follow-up questions.
-    Provide gentle corrections when needed.
-    Be encouraging and positive.`
+        systemPrompt: 'You are a waiter at a nice restaurant. Help the customer order. Speak naturally and correct mistakes gently.'
     }
+];
+
+const PRACTICE_PHRASES = [
+    { phrase: "The weather is beautiful today", translation: "El clima está hermoso hoy", level: "A1" },
+    { phrase: "I would like to order a coffee, please", translation: "Me gustaría ordenar un café, por favor", level: "A2" },
+    { phrase: "Could you tell me how to get to the train station?", translation: "¿Podrías decirme cómo llegar a la estación de tren?", level: "B1" },
+    { phrase: "I've been working on this project for three months", translation: "He estado trabajando en este proyecto por tres meses", level: "B1" },
+];
+
+const VOCAB_WORDS: VocabWord[] = [
+    { id: '1', word: 'gorgeous', phonetic: '/ˈɡɔːrdʒəs/', translation: 'muy hermoso/a', example: 'The sunset is gorgeous', level: 'B1' },
+    { id: '2', word: 'schedule', phonetic: '/ˈskedʒuːl/', translation: 'horario, agenda', example: 'I need to check my schedule', level: 'A2' },
+    { id: '3', word: 'achieve', phonetic: '/əˈtʃiːv/', translation: 'lograr, alcanzar', example: 'You can achieve your goals', level: 'B1' },
+    { id: '4', word: 'comfortable', phonetic: '/ˈkʌmftəbl/', translation: 'cómodo/a', example: 'This chair is very comfortable', level: 'A2' },
 ];
 
 // ============================================
 // HOOKS
 // ============================================
 
-// Speech Recognition Hook
-const useSpeechRecognition = () => {
-    const [isListening, setIsListening] = useState(false);
-    const [transcript, setTranscript] = useState('');
-    const [interimTranscript, setInterimTranscript] = useState('');
-    const [isSupported, setIsSupported] = useState(false);
-    const recognitionRef = useRef<any>(null);
+const useAudioRecorder = () => {
+    const [isRecording, setIsRecording] = useState(false);
+    const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+    const chunksRef = useRef<Blob[]>([]);
 
-    useEffect(() => {
-        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-        if (SpeechRecognition) {
-            setIsSupported(true);
-            const recognition = new SpeechRecognition();
-            recognition.continuous = false;
-            recognition.interimResults = true;
-            recognition.lang = 'en-US';
-
-            recognition.onresult = (event: any) => {
-                let interim = '';
-                let final = '';
-                for (let i = event.resultIndex; i < event.results.length; i++) {
-                    const result = event.results[i];
-                    if (result.isFinal) {
-                        final += result[0].transcript;
-                    } else {
-                        interim += result[0].transcript;
-                    }
-                }
-                setInterimTranscript(interim);
-                if (final) {
-                    setTranscript(final);
-                }
-            };
-
-            recognition.onerror = (event: any) => {
-                console.error('Speech recognition error:', event.error);
-                setIsListening(false);
-            };
-
-            recognition.onend = () => {
-                setIsListening(false);
-            };
-
-            recognitionRef.current = recognition;
-        }
-    }, []);
-
-    const startListening = useCallback(() => {
-        if (recognitionRef.current) {
-            setTranscript('');
-            setInterimTranscript('');
-            recognitionRef.current.start();
-            setIsListening(true);
-        }
-    }, []);
-
-    const stopListening = useCallback(() => {
-        if (recognitionRef.current) {
-            recognitionRef.current.stop();
-            setIsListening(false);
-        }
-    }, []);
-
-    const resetTranscript = useCallback(() => {
-        setTranscript('');
-        setInterimTranscript('');
-    }, []);
-
-    return {
-        isListening,
-        transcript,
-        interimTranscript,
-        isSupported,
-        startListening,
-        stopListening,
-        resetTranscript
-    };
-};
-
-// Local Storage Hook
-const useLocalStorage = <T,>(key: string, initialValue: T): [T, (value: T) => void] => {
-    const [storedValue, setStoredValue] = useState<T>(() => {
+    const startRecording = useCallback(async () => {
         try {
-            const item = localStorage.getItem(key);
-            return item ? JSON.parse(item) : initialValue;
-        } catch {
-            return initialValue;
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+            mediaRecorderRef.current = mediaRecorder;
+            chunksRef.current = [];
+
+            mediaRecorder.ondataavailable = (e) => {
+                if (e.data.size > 0) chunksRef.current.push(e.data);
+            };
+
+            mediaRecorder.onstop = () => {
+                const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+                setAudioBlob(blob);
+                stream.getTracks().forEach(track => track.stop());
+            };
+
+            mediaRecorder.start();
+            setIsRecording(true);
+        } catch (error) {
+            console.error('Error starting recording:', error);
         }
-    });
+    }, []);
 
-    const setValue = (value: T) => {
-        setStoredValue(value);
-        localStorage.setItem(key, JSON.stringify(value));
-    };
+    const stopRecording = useCallback(() => {
+        if (mediaRecorderRef.current && isRecording) {
+            mediaRecorderRef.current.stop();
+            setIsRecording(false);
+        }
+    }, [isRecording]);
 
-    return [storedValue, setValue];
-};
+    const resetRecording = useCallback(() => {
+        setAudioBlob(null);
+    }, []);
 
-// Streak Hook
-const useStreak = () => {
-    const [streak, setStreak] = useLocalStorage('profesoria_streak', { count: 0, lastPractice: '' });
-    const [xp, setXp] = useLocalStorage('profesoria_xp', 0);
-
-    const updateStreak = useCallback(() => {
-        const today = new Date().toDateString();
-        const yesterday = new Date(Date.now() - 86400000).toDateString();
-
-        if (streak.lastPractice === today) return;
-
-        const newCount = streak.lastPractice === yesterday ? streak.count + 1 : 1;
-        setStreak({ count: newCount, lastPractice: today });
-    }, [streak, setStreak]);
-
-    const addXp = useCallback((amount: number) => {
-        setXp(xp + amount);
-        updateStreak();
-    }, [xp, setXp, updateStreak]);
-
-    return { streak: streak.count, xp, addXp, updateStreak };
-};
-
-// ============================================
-// GEMINI AI SERVICE
-// ============================================
-const getApiKey = () => {
-    const customKey = localStorage.getItem('profesoria_api_key');
-    // @ts-ignore
-    const envKey = import.meta.env?.VITE_GEMINI_API_KEY;
-    return customKey || envKey;
-};
-
-const chatWithTutor = async (
-    messages: { role: 'user' | 'model'; text: string }[],
-    systemPrompt: string,
-    userLevel: string
-): Promise<{ text: string; correction?: { original: string; corrected: string; explanation: string } }> => {
-    const apiKey = getApiKey();
-    if (!apiKey) throw new Error('API Key missing');
-
-    const client = new GoogleGenAI({ apiKey });
-
-    const fullSystemPrompt = `${systemPrompt}
-  
-  Student's English level: ${userLevel}
-  
-  IMPORTANT RULES:
-  1. Keep responses SHORT (1-3 sentences max)
-  2. Be conversational, not formal
-  3. If there's a grammar error, correct it naturally inline with **bold** for the correction
-  4. Always respond in English
-  5. Be encouraging and warm
-  
-  Response format (JSON):
-  {
-    "text": "Your conversational response",
-    "hasCorrection": true/false,
-    "correction": {
-      "original": "what they said wrong",
-      "corrected": "how to say it right",
-      "explanation": "brief explanation in Spanish"
-    }
-  }`;
-
-    const contents = messages.map(m => ({
-        role: m.role === 'user' ? 'user' : 'model',
-        parts: [{ text: m.text }]
-    }));
-
-    try {
-        const response = await client.models.generateContent({
-            model: 'gemini-2.5-flash',
-            systemInstruction: fullSystemPrompt,
-            contents,
-            config: {
-                responseMimeType: 'application/json',
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        text: { type: Type.STRING },
-                        hasCorrection: { type: Type.BOOLEAN },
-                        correction: {
-                            type: Type.OBJECT,
-                            properties: {
-                                original: { type: Type.STRING },
-                                corrected: { type: Type.STRING },
-                                explanation: { type: Type.STRING }
-                            }
-                        }
-                    }
-                }
-            }
-        });
-
-        const result = JSON.parse(response.text || '{}');
-        return {
-            text: result.text || "I didn't catch that. Could you repeat?",
-            correction: result.hasCorrection ? result.correction : undefined
-        };
-    } catch (error) {
-        console.error('Chat error:', error);
-        throw error;
-    }
+    return { isRecording, audioBlob, startRecording, stopRecording, resetRecording };
 };
 
 // ============================================
 // COMPONENTS
 // ============================================
 
-// Login Screen
-const LoginScreen: React.FC<{ onLogin: (name: string) => void }> = ({ onLogin }) => {
+const LoginScreen: React.FC<{ onLogin: (username: string) => void }> = ({ onLogin }) => {
     const [name, setName] = useState('');
 
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        if (name.trim()) onLogin(name.trim());
-    };
-
     return (
-        <div className="min-h-screen flex items-center justify-center p-4" style={{
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)'
-        }}>
-            <div className="bg-white/90 backdrop-blur-xl rounded-3xl p-8 w-full max-w-md shadow-2xl">
-                <div className="text-center mb-8">
-                    <div className="text-5xl mb-4">🎓</div>
-                    <h1 className="text-3xl font-bold text-gray-800">Profesoria</h1>
-                    <p className="text-gray-500 mt-2">Tu tutor de inglés con IA</p>
+        <div className="login-screen">
+            <div className="login-card">
+                <div className="login-header">
+                    <span className="emoji-large">🎓</span>
+                    <h1>Profesoria</h1>
+                    <p>Tu tutor de inglés con IA</p>
                 </div>
-
-                <form onSubmit={handleSubmit} className="space-y-4">
+                <form onSubmit={(e) => { e.preventDefault(); if (name.trim()) onLogin(name.trim()); }}>
                     <input
                         type="text"
                         value={name}
                         onChange={(e) => setName(e.target.value)}
                         placeholder="¿Cómo te llamas?"
-                        className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-purple-500 focus:outline-none text-lg"
                         autoFocus
                     />
-                    <button
-                        type="submit"
-                        disabled={!name.trim()}
-                        className="w-full py-3 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold text-lg hover:opacity-90 transition-opacity disabled:opacity-50"
-                    >
+                    <button type="submit" disabled={!name.trim()} className="btn-primary">
                         Comenzar 🚀
                     </button>
                 </form>
@@ -370,460 +154,558 @@ const LoginScreen: React.FC<{ onLogin: (name: string) => void }> = ({ onLogin })
     );
 };
 
-// Onboarding Screen
 const OnboardingScreen: React.FC<{
     name: string;
-    onComplete: (profile: UserProfile) => void;
+    onComplete: (profile: Partial<Profile>) => void;
 }> = ({ name, onComplete }) => {
     const [step, setStep] = useState(0);
     const [currentLevel, setCurrentLevel] = useState('A2');
     const [targetLevel, setTargetLevel] = useState('B2');
     const [interests, setInterests] = useState<string[]>([]);
 
-    const interestOptions = ['Viajes', 'Negocios', 'Tecnología', 'Películas', 'Deportes', 'Música'];
+    const LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+    const interestOptions = ['Viajes', 'Trabajo', 'Tecnología', 'Películas', 'Música', 'Deportes'];
 
-    const handleComplete = () => {
-        onComplete({
-            name,
-            currentLevel,
-            targetLevel,
-            interests: interests.length ? interests : ['General']
-        });
-    };
-
-    const steps = [
-        // Level selection
-        <div key="level" className="space-y-4">
-            <h2 className="text-2xl font-bold text-center">¿Cuál es tu nivel actual?</h2>
-            <div className="grid grid-cols-3 gap-3">
-                {LEVELS.map(level => (
-                    <button
-                        key={level}
-                        onClick={() => setCurrentLevel(level)}
-                        className={`py-4 rounded-xl text-lg font-semibold transition-all ${currentLevel === level
-                                ? 'bg-purple-600 text-white scale-105'
-                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                            }`}
-                    >
-                        {level}
-                    </button>
-                ))}
-            </div>
-            <button
-                onClick={() => setStep(1)}
-                className="w-full py-3 mt-4 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold"
-            >
-                Siguiente
-            </button>
-        </div>,
-
-        // Target level
-        <div key="target" className="space-y-4">
-            <h2 className="text-2xl font-bold text-center">¿A qué nivel quieres llegar?</h2>
-            <div className="grid grid-cols-3 gap-3">
-                {LEVELS.filter(l => LEVELS.indexOf(l) > LEVELS.indexOf(currentLevel)).map(level => (
-                    <button
-                        key={level}
-                        onClick={() => setTargetLevel(level)}
-                        className={`py-4 rounded-xl text-lg font-semibold transition-all ${targetLevel === level
-                                ? 'bg-purple-600 text-white scale-105'
-                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                            }`}
-                    >
-                        {level}
-                    </button>
-                ))}
-            </div>
-            <button
-                onClick={() => setStep(2)}
-                className="w-full py-3 mt-4 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold"
-            >
-                Siguiente
-            </button>
-        </div>,
-
-        // Interests
-        <div key="interests" className="space-y-4">
-            <h2 className="text-2xl font-bold text-center">¿Qué te interesa?</h2>
-            <p className="text-gray-500 text-center">Selecciona varios temas</p>
-            <div className="grid grid-cols-2 gap-3">
-                {interestOptions.map(interest => (
-                    <button
-                        key={interest}
-                        onClick={() => {
-                            setInterests(prev =>
-                                prev.includes(interest)
-                                    ? prev.filter(i => i !== interest)
-                                    : [...prev, interest]
-                            );
-                        }}
-                        className={`py-3 px-4 rounded-xl font-medium transition-all ${interests.includes(interest)
-                                ? 'bg-purple-600 text-white'
-                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                            }`}
-                    >
-                        {interest}
-                    </button>
-                ))}
-            </div>
-            <button
-                onClick={handleComplete}
-                className="w-full py-3 mt-4 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold"
-            >
-                ¡Empezar a aprender! 🎉
-            </button>
-        </div>
-    ];
-
-    return (
-        <div className="min-h-screen flex items-center justify-center p-4" style={{
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)'
-        }}>
-            <div className="bg-white/90 backdrop-blur-xl rounded-3xl p-8 w-full max-w-md shadow-2xl">
-                <div className="mb-6">
-                    <div className="flex justify-center gap-2 mb-4">
-                        {[0, 1, 2].map(i => (
-                            <div
-                                key={i}
-                                className={`w-3 h-3 rounded-full transition-colors ${i <= step ? 'bg-purple-600' : 'bg-gray-300'
-                                    }`}
-                            />
+    if (step === 0) {
+        return (
+            <div className="onboarding-screen">
+                <div className="onboarding-card">
+                    <p className="greeting">Hola, {name}! 👋</p>
+                    <h2>¿Cuál es tu nivel actual?</h2>
+                    <div className="level-grid">
+                        {LEVELS.map(level => (
+                            <button
+                                key={level}
+                                onClick={() => setCurrentLevel(level)}
+                                className={`level-btn ${currentLevel === level ? 'active' : ''}`}
+                            >
+                                {level}
+                            </button>
                         ))}
                     </div>
-                    <p className="text-center text-gray-500">Hola, {name} 👋</p>
+                    <button onClick={() => setStep(1)} className="btn-primary">Siguiente</button>
                 </div>
-                {steps[step]}
             </div>
-        </div>
-    );
-};
+        );
+    }
 
-// Dashboard Screen
-const DashboardScreen: React.FC<{
-    profile: UserProfile;
-    streak: number;
-    xp: number;
-    onSelectScenario: (scenario: ConversationScenario) => void;
-    onLogout: () => void;
-}> = ({ profile, streak, xp, onSelectScenario, onLogout }) => {
+    if (step === 1) {
+        return (
+            <div className="onboarding-screen">
+                <div className="onboarding-card">
+                    <h2>¿A qué nivel quieres llegar?</h2>
+                    <div className="level-grid">
+                        {LEVELS.filter(l => LEVELS.indexOf(l) > LEVELS.indexOf(currentLevel)).map(level => (
+                            <button
+                                key={level}
+                                onClick={() => setTargetLevel(level)}
+                                className={`level-btn ${targetLevel === level ? 'active' : ''}`}
+                            >
+                                {level}
+                            </button>
+                        ))}
+                    </div>
+                    <button onClick={() => setStep(2)} className="btn-primary">Siguiente</button>
+                </div>
+            </div>
+        );
+    }
+
     return (
-        <div className="min-h-screen bg-gray-50">
-            {/* Header */}
-            <header className="bg-white shadow-sm px-4 py-4">
-                <div className="max-w-lg mx-auto flex items-center justify-between">
-                    <div>
-                        <h1 className="text-xl font-bold text-gray-800">Hola, {profile.name}! 👋</h1>
-                        <p className="text-sm text-gray-500">Nivel: {profile.currentLevel} → {profile.targetLevel}</p>
-                    </div>
-                    <button onClick={onLogout} className="text-gray-400 hover:text-gray-600">
-                        <LogOut size={20} />
-                    </button>
-                </div>
-            </header>
-
-            {/* Stats */}
-            <div className="max-w-lg mx-auto px-4 py-6">
-                <div className="grid grid-cols-2 gap-4 mb-8">
-                    <div className="bg-gradient-to-br from-orange-400 to-red-500 rounded-2xl p-4 text-white">
-                        <div className="flex items-center gap-2">
-                            <Flame size={24} />
-                            <span className="text-3xl font-bold">{streak}</span>
-                        </div>
-                        <p className="text-sm opacity-90 mt-1">Días seguidos</p>
-                    </div>
-                    <div className="bg-gradient-to-br from-yellow-400 to-orange-500 rounded-2xl p-4 text-white">
-                        <div className="flex items-center gap-2">
-                            <Star size={24} />
-                            <span className="text-3xl font-bold">{xp}</span>
-                        </div>
-                        <p className="text-sm opacity-90 mt-1">XP Total</p>
-                    </div>
-                </div>
-
-                {/* Scenarios */}
-                <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                    <MessageCircle size={20} />
-                    ¿De qué quieres hablar hoy?
-                </h2>
-
-                <div className="space-y-3">
-                    {SCENARIOS.map(scenario => (
+        <div className="onboarding-screen">
+            <div className="onboarding-card">
+                <h2>¿Qué te interesa?</h2>
+                <div className="interest-grid">
+                    {interestOptions.map(interest => (
                         <button
-                            key={scenario.id}
-                            onClick={() => onSelectScenario(scenario)}
-                            className="w-full bg-white rounded-2xl p-4 shadow-sm hover:shadow-md transition-all flex items-center gap-4 text-left"
+                            key={interest}
+                            onClick={() => setInterests(prev =>
+                                prev.includes(interest) ? prev.filter(i => i !== interest) : [...prev, interest]
+                            )}
+                            className={`interest-btn ${interests.includes(interest) ? 'active' : ''}`}
                         >
-                            <div className="text-3xl">{scenario.icon}</div>
-                            <div className="flex-1">
-                                <h3 className="font-semibold text-gray-800">{scenario.titleEs}</h3>
-                                <p className="text-sm text-gray-500">{scenario.description}</p>
-                            </div>
-                            <div className={`px-2 py-1 rounded-full text-xs font-medium ${scenario.difficulty === 'easy' ? 'bg-green-100 text-green-700' :
-                                    scenario.difficulty === 'medium' ? 'bg-yellow-100 text-yellow-700' :
-                                        'bg-red-100 text-red-700'
-                                }`}>
-                                {scenario.difficulty === 'easy' ? 'Fácil' :
-                                    scenario.difficulty === 'medium' ? 'Medio' : 'Difícil'}
-                            </div>
+                            {interest}
                         </button>
                     ))}
                 </div>
+                <button
+                    onClick={() => onComplete({
+                        name,
+                        current_level: currentLevel,
+                        target_level: targetLevel,
+                        interests: interests.length ? interests : ['General']
+                    })}
+                    className="btn-primary"
+                >
+                    ¡Empezar! 🎉
+                </button>
             </div>
         </div>
     );
 };
 
-// Chat Screen (Main Conversation)
-const ChatScreen: React.FC<{
+const DashboardScreen: React.FC<{
+    profile: Profile;
+    onSelectScenario: (scenario: ConversationScenario | string) => void;
+    onLogout: () => void;
+}> = ({ profile, onSelectScenario, onLogout }) => {
+    return (
+        <div className="dashboard">
+            <header className="dashboard-header">
+                <div>
+                    <h1>Hola, {profile.name}! 👋</h1>
+                    <p>{profile.current_level} → {profile.target_level}</p>
+                </div>
+                <button onClick={onLogout} className="icon-btn"><LogOut size={20} /></button>
+            </header>
+
+            <div className="stats-row">
+                <div className="stat-card flame">
+                    <Flame size={24} />
+                    <span className="stat-value">{profile.streak_count}</span>
+                    <span className="stat-label">Días</span>
+                </div>
+                <div className="stat-card star">
+                    <Star size={24} />
+                    <span className="stat-value">{profile.xp_total}</span>
+                    <span className="stat-label">XP</span>
+                </div>
+            </div>
+
+            <h2 className="section-title">
+                <MessageCircle size={20} />
+                ¿Qué quieres practicar?
+            </h2>
+
+            <div className="scenario-list">
+                {SCENARIOS.map(scenario => (
+                    <button
+                        key={scenario.id}
+                        onClick={() => onSelectScenario(scenario)}
+                        className="scenario-card"
+                    >
+                        <span className="scenario-icon">{scenario.icon}</span>
+                        <div className="scenario-info">
+                            <h3>{scenario.titleEs}</h3>
+                            <p>{scenario.description}</p>
+                        </div>
+                        <span className="arrow">→</span>
+                    </button>
+                ))}
+
+                <button onClick={() => onSelectScenario('vocab')} className="scenario-card">
+                    <span className="scenario-icon">📚</span>
+                    <div className="scenario-info">
+                        <h3>Vocabulario Diario</h3>
+                        <p>Aprende palabras nuevas</p>
+                    </div>
+                    <span className="arrow">→</span>
+                </button>
+
+                <button onClick={() => onSelectScenario('pronunciation')} className="scenario-card">
+                    <span className="scenario-icon">🔊</span>
+                    <div className="scenario-info">
+                        <h3>Pronunciación Lab</h3>
+                        <p>Practica sonidos difíciles</p>
+                    </div>
+                    <span className="arrow">→</span>
+                </button>
+            </div>
+        </div>
+    );
+};
+
+const LiveCallScreen: React.FC<{
     scenario: ConversationScenario;
-    profile: UserProfile;
+    profile: Profile;
     onBack: () => void;
     onAddXp: (amount: number) => void;
 }> = ({ scenario, profile, onBack, onAddXp }) => {
-    const [messages, setMessages] = useState<Message[]>([]);
-    const [inputText, setInputText] = useState('');
-    const [isLoading, setIsLoading] = useState(false);
-    const [isSpeaking, setIsSpeaking] = useState(false);
-    const messagesEndRef = useRef<HTMLDivElement>(null);
+    const [isConnected, setIsConnected] = useState(false);
+    const [isConnecting, setIsConnecting] = useState(false);
+    const [isMuted, setIsMuted] = useState(false);
+    const [currentTutorText, setCurrentTutorText] = useState('');
+    const [callDuration, setCallDuration] = useState(0);
+    const liveSessionRef = useRef<LiveSession | null>(null);
+    const timerRef = useRef<any>(null);
+    const startTimeRef = useRef<number>(0);
 
-    const {
-        isListening,
-        transcript,
-        interimTranscript,
-        isSupported: speechSupported,
-        startListening,
-        stopListening,
-        resetTranscript
-    } = useSpeechRecognition();
-
-    // Scroll to bottom
-    useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages]);
-
-    // Handle transcript when user stops speaking
-    useEffect(() => {
-        if (transcript && !isListening) {
-            handleSendMessage(transcript);
-            resetTranscript();
+    const handleMessage = useCallback((text: string | null, isInterrupted: boolean) => {
+        if (isInterrupted) {
+            setCurrentTutorText('');
+            return;
         }
-    }, [transcript, isListening]);
-
-    // Initial greeting
-    useEffect(() => {
-        const greet = async () => {
-            setIsLoading(true);
-            try {
-                const greeting = await chatWithTutor(
-                    [{ role: 'user', text: 'Start the conversation with a warm greeting.' }],
-                    scenario.systemPrompt,
-                    profile.currentLevel
-                );
-
-                const tutorMessage: Message = {
-                    id: Date.now().toString(),
-                    role: 'tutor',
-                    text: greeting.text
-                };
-
-                setMessages([tutorMessage]);
-
-                // Speak the greeting
-                try {
-                    const audio = await generateSpeech(greeting.text, 'Kore');
-                    await playRawAudio(audio);
-                } catch (e) {
-                    console.warn('TTS failed:', e);
-                }
-            } catch (error) {
-                console.error('Greeting error:', error);
-                setMessages([{
-                    id: '1',
-                    role: 'tutor',
-                    text: "Hi there! Let's practice English together. How are you today?"
-                }]);
-            } finally {
-                setIsLoading(false);
-            }
-        };
-
-        greet();
+        if (text) {
+            setCurrentTutorText(prev => prev + text);
+        }
     }, []);
 
-    const handleSendMessage = async (text: string) => {
-        if (!text.trim() || isLoading) return;
-
-        const userMessage: Message = {
-            id: Date.now().toString(),
-            role: 'user',
-            text: text.trim()
-        };
-
-        setMessages(prev => [...prev, userMessage]);
-        setInputText('');
-        setIsLoading(true);
-
+    const startCall = async () => {
+        setIsConnecting(true);
         try {
-            const chatHistory = [...messages, userMessage].map(m => ({
-                role: m.role === 'user' ? 'user' as const : 'model' as const,
-                text: m.text
-            }));
+            const systemPrompt = scenario.systemPrompt.replace('{level}', profile.current_level);
+            const session = new LiveSession(handleMessage);
+            await session.connect(systemPrompt, 'Kore');
+            liveSessionRef.current = session;
+            setIsConnected(true);
+            startTimeRef.current = Date.now();
 
-            const response = await chatWithTutor(
-                chatHistory,
-                scenario.systemPrompt,
-                profile.currentLevel
-            );
+            timerRef.current = setInterval(() => {
+                setCallDuration(prev => prev + 1);
+            }, 1000);
 
-            const tutorMessage: Message = {
-                id: (Date.now() + 1).toString(),
-                role: 'tutor',
-                text: response.text,
-                correction: response.correction
-            };
-
-            setMessages(prev => [...prev, tutorMessage]);
-
-            // Add XP for practicing
-            onAddXp(5);
-
-            // Speak the response
-            setIsSpeaking(true);
-            try {
-                const audio = await generateSpeech(response.text, 'Kore');
-                await playRawAudio(audio);
-            } catch (e) {
-                console.warn('TTS failed:', e);
-            } finally {
-                setIsSpeaking(false);
-            }
+            onAddXp(10);
         } catch (error) {
-            console.error('Chat error:', error);
-            setMessages(prev => [...prev, {
-                id: (Date.now() + 1).toString(),
-                role: 'tutor',
-                text: "Sorry, I had trouble understanding. Could you try again?"
-            }]);
+            console.error('Failed to connect:', error);
+            alert('Error conectando. Verifica tu API Key.');
         } finally {
-            setIsLoading(false);
+            setIsConnecting(false);
         }
     };
 
-    const handleMicClick = () => {
-        if (isListening) {
-            stopListening();
-        } else {
-            startListening();
+    const endCall = async () => {
+        if (liveSessionRef.current) {
+            await liveSessionRef.current.disconnect();
+            liveSessionRef.current = null;
         }
+        if (timerRef.current) {
+            clearInterval(timerRef.current);
+        }
+
+        const duration = Math.floor((Date.now() - startTimeRef.current) / 1000);
+        const xpEarned = Math.max(5, Math.floor(duration / 10));
+
+        await saveSession({
+            username: profile.username,
+            session_type: 'call',
+            scenario: scenario.id,
+            duration_seconds: duration,
+            xp_earned: xpEarned,
+            details: { duration }
+        });
+
+        await updateProgress(profile.username, xpEarned);
+        setIsConnected(false);
+    };
+
+    useEffect(() => {
+        return () => {
+            if (liveSessionRef.current) {
+                liveSessionRef.current.disconnect();
+            }
+            if (timerRef.current) {
+                clearInterval(timerRef.current);
+            }
+        };
+    }, []);
+
+    const formatTime = (seconds: number) => {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
     };
 
     return (
-        <div className="min-h-screen bg-gray-50 flex flex-col">
-            {/* Header */}
-            <header className="bg-white shadow-sm px-4 py-3 flex items-center gap-3">
-                <button onClick={onBack} className="text-gray-600">
+        <div className="call-screen">
+            <header className="call-header">
+                <button onClick={() => { endCall(); onBack(); }} className="icon-btn">
                     <ArrowLeft size={24} />
                 </button>
-                <div className="flex-1">
-                    <h1 className="font-semibold text-gray-800">{scenario.titleEs}</h1>
-                    <p className="text-xs text-gray-500">{scenario.icon} {scenario.title}</p>
-                </div>
-                {isSpeaking && (
-                    <div className="flex items-center gap-1 text-purple-600">
-                        <Volume2 size={16} className="animate-pulse" />
-                        <span className="text-xs">Hablando...</span>
-                    </div>
-                )}
+                <h1>{scenario.titleEs}</h1>
+                {isConnected && <span className="call-timer">{formatTime(callDuration)}</span>}
             </header>
 
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-                {messages.map(message => (
-                    <div
-                        key={message.id}
-                        className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                    >
-                        <div className={`max-w-[80%] rounded-2xl px-4 py-3 ${message.role === 'user'
-                                ? 'bg-purple-600 text-white rounded-br-md'
-                                : 'bg-white shadow-sm rounded-bl-md'
-                            }`}>
-                            <p className={message.role === 'tutor' ? 'text-gray-800' : ''}>{message.text}</p>
-
-                            {message.correction && (
-                                <div className="mt-2 pt-2 border-t border-purple-200 bg-purple-50 rounded-lg p-2 -mx-2 -mb-1">
-                                    <div className="flex items-start gap-2">
-                                        <Sparkles size={14} className="text-purple-600 mt-0.5" />
-                                        <div className="text-xs">
-                                            <p className="text-red-500 line-through">{message.correction.original}</p>
-                                            <p className="text-green-600 font-medium">✓ {message.correction.corrected}</p>
-                                            <p className="text-gray-500 mt-1">{message.correction.explanation}</p>
-                                        </div>
-                                    </div>
+            <div className="call-body">
+                {!isConnected ? (
+                    <div className="call-start">
+                        <div className="avatar-large">🎓</div>
+                        <h2>Emma</h2>
+                        <p>Tu tutora de inglés</p>
+                        <p className="hint">Presiona para iniciar una conversación en tiempo real</p>
+                        <button
+                            onClick={startCall}
+                            disabled={isConnecting}
+                            className="call-btn start"
+                        >
+                            {isConnecting ? (
+                                <span className="loading-dots">Conectando...</span>
+                            ) : (
+                                <>
+                                    <Phone size={32} />
+                                    <span>Llamar</span>
+                                </>
+                            )}
+                        </button>
+                    </div>
+                ) : (
+                    <div className="call-active">
+                        <div className="tutor-speaking">
+                            <div className="avatar-speaking">
+                                <span>🎓</span>
+                                <div className="sound-waves">
+                                    <span></span><span></span><span></span>
                                 </div>
+                            </div>
+                            <h2>Emma está escuchando...</h2>
+                            {currentTutorText && (
+                                <p className="live-transcript">{currentTutorText}</p>
                             )}
                         </div>
-                    </div>
-                ))}
 
-                {isLoading && (
-                    <div className="flex justify-start">
-                        <div className="bg-white shadow-sm rounded-2xl rounded-bl-md px-4 py-3">
-                            <div className="flex items-center gap-1">
-                                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                        <div className="call-controls">
+                            <button
+                                onClick={() => setIsMuted(!isMuted)}
+                                className={`control-btn ${isMuted ? 'muted' : ''}`}
+                            >
+                                {isMuted ? <MicOff size={24} /> : <Mic size={24} />}
+                            </button>
+                            <button onClick={endCall} className="call-btn end">
+                                <PhoneOff size={32} />
+                            </button>
+                            <button className="control-btn">
+                                <Volume2 size={24} />
+                            </button>
+                        </div>
+
+                        <p className="call-hint">🎤 Habla en inglés - Emma te escucha y responde</p>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+const VocabScreen: React.FC<{
+    profile: Profile;
+    onBack: () => void;
+    onAddXp: (amount: number) => void;
+}> = ({ profile, onBack, onAddXp }) => {
+    const [currentIndex, setCurrentIndex] = useState(0);
+    const [isFlipped, setIsFlipped] = useState(false);
+    const [isPlaying, setIsPlaying] = useState(false);
+
+    const currentWord = VOCAB_WORDS[currentIndex];
+
+    const playWord = async () => {
+        setIsPlaying(true);
+        try {
+            const audio = await generateSpeech(currentWord.word, 'Kore');
+            await playRawAudio(audio);
+        } catch (error) {
+            console.error('TTS error:', error);
+        } finally {
+            setIsPlaying(false);
+        }
+    };
+
+    const nextWord = () => {
+        setIsFlipped(false);
+        setCurrentIndex((currentIndex + 1) % VOCAB_WORDS.length);
+        onAddXp(5);
+    };
+
+    return (
+        <div className="vocab-screen">
+            <header className="screen-header">
+                <button onClick={onBack} className="icon-btn"><ArrowLeft size={24} /></button>
+                <h1>📚 Vocabulario</h1>
+            </header>
+
+            <div className="vocab-body">
+                <div className={`vocab-card ${isFlipped ? 'flipped' : ''}`}>
+                    {!isFlipped ? (
+                        <div className="card-front">
+                            <p className="level-badge">{currentWord.level}</p>
+                            <h2 className="word">{currentWord.word}</h2>
+                            <p className="phonetic">{currentWord.phonetic}</p>
+                            <button onClick={playWord} disabled={isPlaying} className="listen-btn">
+                                {isPlaying ? '🔊 Reproduciendo...' : '🔊 Escuchar'}
+                            </button>
+                        </div>
+                    ) : (
+                        <div className="card-back">
+                            <h3 className="translation">{currentWord.translation}</h3>
+                            <p className="example">"{currentWord.example}"</p>
+                            <button onClick={playWord} disabled={isPlaying} className="listen-btn">
+                                {isPlaying ? '🔊 Reproduciendo...' : '🔊 Escuchar ejemplo'}
+                            </button>
+                        </div>
+                    )}
+                </div>
+
+                <button onClick={() => setIsFlipped(!isFlipped)} className="flip-btn">
+                    {isFlipped ? 'Ver palabra →' : '← Ver traducción'}
+                </button>
+
+                <div className="vocab-actions">
+                    <button onClick={nextWord} className="btn-primary">
+                        Ya la sé ✓
+                    </button>
+                </div>
+
+                <p className="vocab-progress">
+                    Progreso: {currentIndex + 1} / {VOCAB_WORDS.length}
+                </p>
+            </div>
+        </div>
+    );
+};
+
+const PronunciationScreen: React.FC<{
+    profile: Profile;
+    onBack: () => void;
+    onAddXp: (amount: number) => void;
+}> = ({ profile, onBack, onAddXp }) => {
+    const [currentPhrase, setCurrentPhrase] = useState(PRACTICE_PHRASES[0]);
+    const [result, setResult] = useState<any>(null);
+    const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [isPlaying, setIsPlaying] = useState(false);
+    const { isRecording, audioBlob, startRecording, stopRecording, resetRecording } = useAudioRecorder();
+
+    const playExample = async () => {
+        setIsPlaying(true);
+        try {
+            const audio = await generateSpeech(currentPhrase.phrase, 'Kore');
+            await playRawAudio(audio);
+        } catch (error) {
+            console.error('TTS error:', error);
+        } finally {
+            setIsPlaying(false);
+        }
+    };
+
+    const analyzeRecording = async () => {
+        if (!audioBlob) return;
+
+        setIsAnalyzing(true);
+        try {
+            const reader = new FileReader();
+            reader.readAsDataURL(audioBlob);
+            reader.onloadend = async () => {
+                const base64 = (reader.result as string).split(',')[1];
+
+                const analysis = await evaluatePronunciation(
+                    currentPhrase.phrase,
+                    base64,
+                    profile.current_level
+                );
+
+                setResult(analysis);
+                onAddXp(Math.floor(analysis.score / 10));
+
+                await savePronunciation({
+                    username: profile.username,
+                    phrase: currentPhrase.phrase,
+                    score: analysis.score,
+                    word_analysis: analysis.words,
+                    feedback: analysis.feedback
+                });
+
+                await updateProgress(profile.username, Math.floor(analysis.score / 10));
+            };
+        } catch (error) {
+            console.error('Analysis error:', error);
+            setResult({ score: 0, feedback: 'Error al analizar. Intenta de nuevo.', words: [] });
+        } finally {
+            setIsAnalyzing(false);
+        }
+    };
+
+    const nextPhrase = () => {
+        const currentIndex = PRACTICE_PHRASES.indexOf(currentPhrase);
+        const nextIndex = (currentIndex + 1) % PRACTICE_PHRASES.length;
+        setCurrentPhrase(PRACTICE_PHRASES[nextIndex]);
+        setResult(null);
+        resetRecording();
+    };
+
+    useEffect(() => {
+        if (audioBlob && !isRecording) {
+            analyzeRecording();
+        }
+    }, [audioBlob, isRecording]);
+
+    return (
+        <div className="pronunciation-screen">
+            <header className="screen-header">
+                <button onClick={onBack} className="icon-btn"><ArrowLeft size={24} /></button>
+                <h1>🔊 Pronunciación</h1>
+            </header>
+
+            <div className="pronunciation-body">
+                <div className="phrase-card">
+                    <p className="level-badge">{currentPhrase.level}</p>
+                    <h2 className="target-phrase">{currentPhrase.phrase}</h2>
+                    <p className="translation">{currentPhrase.translation}</p>
+
+                    <button
+                        onClick={playExample}
+                        disabled={isPlaying}
+                        className="listen-btn"
+                    >
+                        {isPlaying ? '🔊 Reproduciendo...' : '🔊 Escuchar ejemplo'}
+                    </button>
+                </div>
+
+                {!result ? (
+                    <div className="record-section">
+                        <button
+                            onClick={isRecording ? stopRecording : startRecording}
+                            disabled={isAnalyzing}
+                            className={`record-btn ${isRecording ? 'recording' : ''}`}
+                        >
+                            {isAnalyzing ? (
+                                <span>Analizando...</span>
+                            ) : isRecording ? (
+                                <>
+                                    <MicOff size={32} />
+                                    <span>Detener</span>
+                                </>
+                            ) : (
+                                <>
+                                    <Mic size={32} />
+                                    <span>Grabar</span>
+                                </>
+                            )}
+                        </button>
+                        {isRecording && <p className="recording-hint">🎤 Habla ahora...</p>}
+                    </div>
+                ) : (
+                    <div className="result-section">
+                        <div className={`score-circle ${result.score >= 80 ? 'great' : result.score >= 60 ? 'good' : 'needs-work'}`}>
+                            <span className="score-value">{result.score}</span>
+                            <span className="score-label">/ 100</span>
+                        </div>
+
+                        <p className="feedback">{result.feedback}</p>
+
+                        {result.words && result.words.length > 0 && (
+                            <div className="word-analysis">
+                                <h3>Análisis por palabra:</h3>
+                                <div className="word-list">
+                                    {result.words.map((word: WordAnalysis, i: number) => (
+                                        <span
+                                            key={i}
+                                            className={`word ${word.isCorrect ? 'correct' : 'incorrect'}`}
+                                        >
+                                            {word.isCorrect ? <CheckCircle size={12} /> : <XCircle size={12} />}
+                                            {word.word}
+                                        </span>
+                                    ))}
+                                </div>
                             </div>
+                        )}
+
+                        <div className="result-actions">
+                            <button onClick={() => { setResult(null); resetRecording(); }} className="btn-secondary">
+                                Intentar de nuevo
+                            </button>
+                            <button onClick={nextPhrase} className="btn-primary">
+                                Siguiente frase →
+                            </button>
                         </div>
                     </div>
                 )}
-
-                <div ref={messagesEndRef} />
-            </div>
-
-            {/* Interim transcript */}
-            {(isListening || interimTranscript) && (
-                <div className="px-4 py-2 bg-purple-50 border-t">
-                    <p className="text-sm text-purple-600 flex items-center gap-2">
-                        <Mic size={14} className="animate-pulse" />
-                        {interimTranscript || 'Escuchando...'}
-                    </p>
-                </div>
-            )}
-
-            {/* Input Area */}
-            <div className="bg-white border-t px-4 py-3 safe-area-pb">
-                <div className="flex items-center gap-3">
-                    <input
-                        type="text"
-                        value={inputText}
-                        onChange={(e) => setInputText(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && handleSendMessage(inputText)}
-                        placeholder="Escribe o habla en inglés..."
-                        className="flex-1 px-4 py-2 rounded-full border border-gray-200 focus:border-purple-500 focus:outline-none"
-                        disabled={isListening}
-                    />
-
-                    {speechSupported && (
-                        <button
-                            onClick={handleMicClick}
-                            disabled={isLoading}
-                            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${isListening
-                                    ? 'bg-red-500 text-white animate-pulse'
-                                    : 'bg-purple-100 text-purple-600 hover:bg-purple-200'
-                                }`}
-                        >
-                            {isListening ? <MicOff size={20} /> : <Mic size={20} />}
-                        </button>
-                    )}
-
-                    <button
-                        onClick={() => handleSendMessage(inputText)}
-                        disabled={!inputText.trim() || isLoading}
-                        className="w-12 h-12 rounded-full bg-purple-600 text-white flex items-center justify-center hover:bg-purple-700 disabled:opacity-50"
-                    >
-                        <Send size={20} />
-                    </button>
-                </div>
             </div>
         </div>
     );
@@ -833,99 +715,104 @@ const ChatScreen: React.FC<{
 // MAIN APP
 // ============================================
 const App: React.FC = () => {
-    const [currentUser, setCurrentUser] = useLocalStorage<string | null>('profesoria_current_user', null);
-    const [profile, setProfile] = useLocalStorage<UserProfile | null>('profesoria_profile', null);
+    const [currentUser, setCurrentUser] = useState<string | null>(null);
+    const [profile, setProfile] = useState<Profile | null>(null);
     const [selectedScenario, setSelectedScenario] = useState<ConversationScenario | null>(null);
-    const { streak, xp, addXp } = useStreak();
-
-    // App State
-    const [appState, setAppState] = useState<'loading' | 'login' | 'onboarding' | 'dashboard' | 'chat'>('loading');
+    const [appState, setAppState] = useState<'loading' | 'login' | 'onboarding' | 'dashboard' | 'call' | 'vocab' | 'pronunciation'>('loading');
 
     useEffect(() => {
-        // Determine initial state
-        if (currentUser && profile) {
-            setAppState('dashboard');
-        } else if (currentUser && !profile) {
-            setAppState('onboarding');
-        } else {
-            setAppState('login');
-        }
+        const loadUser = async () => {
+            const storedUsername = localStorage.getItem('profesoria_current_user');
+            if (storedUsername) {
+                const userProfile = await getProfile(storedUsername);
+                if (userProfile) {
+                    setCurrentUser(storedUsername);
+                    setProfile(userProfile);
+                    setAppState('dashboard');
+                } else {
+                    setAppState('login');
+                }
+            } else {
+                setAppState('login');
+            }
+        };
+        loadUser();
     }, []);
 
-    const handleLogin = (name: string) => {
-        setCurrentUser(name);
+    const handleLogin = async (username: string) => {
+        setCurrentUser(username);
+        localStorage.setItem('profesoria_current_user', username);
 
-        // Check if profile exists
-        const existingProfile = localStorage.getItem(`profesoria_profile_${name}`);
+        const existingProfile = await getProfile(username);
         if (existingProfile) {
-            setProfile(JSON.parse(existingProfile));
+            setProfile(existingProfile);
             setAppState('dashboard');
         } else {
             setAppState('onboarding');
         }
     };
 
-    const handleOnboardingComplete = (newProfile: UserProfile) => {
-        setProfile(newProfile);
-        localStorage.setItem(`profesoria_profile_${currentUser}`, JSON.stringify(newProfile));
+    const handleOnboardingComplete = async (newProfileData: Partial<Profile>) => {
+        const fullProfile: Profile = {
+            username: currentUser!,
+            name: newProfileData.name || currentUser!,
+            current_level: newProfileData.current_level || 'A2',
+            target_level: newProfileData.target_level || 'B2',
+            interests: newProfileData.interests || [],
+            xp_total: 0,
+            streak_count: 0
+        };
+
+        await saveProfile(currentUser!, fullProfile);
+        setProfile(fullProfile);
         setAppState('dashboard');
     };
 
-    const handleSelectScenario = (scenario: ConversationScenario) => {
-        setSelectedScenario(scenario);
-        setAppState('chat');
-    };
-
-    const handleBackToDashboard = () => {
-        setSelectedScenario(null);
-        setAppState('dashboard');
+    const handleSelectScenario = (scenario: ConversationScenario | string) => {
+        if (typeof scenario === 'string') {
+            if (scenario === 'vocab') {
+                setAppState('vocab');
+            } else if (scenario === 'pronunciation') {
+                setAppState('pronunciation');
+            }
+        } else {
+            setSelectedScenario(scenario);
+            setAppState('call');
+        }
     };
 
     const handleLogout = () => {
         setCurrentUser(null);
         setProfile(null);
+        localStorage.removeItem('profesoria_current_user');
         setAppState('login');
     };
 
-    // Render based on state
+    const addXp = async (amount: number) => {
+        if (currentUser && profile) {
+            await updateProgress(currentUser, amount);
+            const updatedProfile = await getProfile(currentUser);
+            if (updatedProfile) {
+                setProfile(updatedProfile);
+            }
+        }
+    };
+
     switch (appState) {
         case 'loading':
-            return (
-                <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-600 to-pink-600">
-                    <div className="text-white text-center">
-                        <div className="text-5xl mb-4">🎓</div>
-                        <p className="text-lg">Cargando...</p>
-                    </div>
-                </div>
-            );
-
+            return <div className="loading-screen"><span>🎓</span><p>Cargando...</p></div>;
         case 'login':
             return <LoginScreen onLogin={handleLogin} />;
-
         case 'onboarding':
             return <OnboardingScreen name={currentUser!} onComplete={handleOnboardingComplete} />;
-
         case 'dashboard':
-            return (
-                <DashboardScreen
-                    profile={profile!}
-                    streak={streak}
-                    xp={xp}
-                    onSelectScenario={handleSelectScenario}
-                    onLogout={handleLogout}
-                />
-            );
-
-        case 'chat':
-            return (
-                <ChatScreen
-                    scenario={selectedScenario!}
-                    profile={profile!}
-                    onBack={handleBackToDashboard}
-                    onAddXp={addXp}
-                />
-            );
-
+            return <DashboardScreen profile={profile!} onSelectScenario={handleSelectScenario} onLogout={handleLogout} />;
+        case 'call':
+            return <LiveCallScreen scenario={selectedScenario!} profile={profile!} onBack={() => setAppState('dashboard')} onAddXp={addXp} />;
+        case 'vocab':
+            return <VocabScreen profile={profile!} onBack={() => setAppState('dashboard')} onAddXp={addXp} />;
+        case 'pronunciation':
+            return <PronunciationScreen profile={profile!} onBack={() => setAppState('dashboard')} onAddXp={addXp} />;
         default:
             return null;
     }
