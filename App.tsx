@@ -1000,7 +1000,9 @@ const App: React.FC = () => {
                 setCourse(updatedCourse); // Update state properly
             } catch (e) {
                 console.error(e);
-                alert("Failed to generate content. Ensure API Key is valid.");
+                alert("Failed to generate content. Please check your internet or API Key.");
+                setLoading(false);
+                return; // STOP EXECUTION - Do not open empty lesson
             } finally {
                 setLoading(false);
             }
