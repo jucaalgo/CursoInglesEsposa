@@ -3,38 +3,7 @@ import { supabase } from './supabase';
 // ============================================
 // TYPES
 // ============================================
-export interface Profile {
-    username: string;
-    name: string;
-    current_level: string;
-    target_level: string;
-    interests: string[];
-    xp_total: number;
-    streak_count: number;
-    last_practice_at?: string;
-}
-
-export interface Session {
-    id?: string;
-    username: string;
-    session_type: 'call' | 'vocab' | 'pronunciation' | 'roleplay';
-    scenario?: string;
-    duration_seconds: number;
-    xp_earned: number;
-    score?: number;
-    details?: any;
-    created_at?: string;
-}
-
-export interface PronunciationResult {
-    id?: string;
-    username: string;
-    phrase: string;
-    score: number;
-    word_analysis?: any;
-    feedback: string;
-    created_at?: string;
-}
+import { Profile, Session, PronunciationResult, CourseProgress } from '../types';
 
 // ============================================
 // PROFILE MANAGEMENT
@@ -49,20 +18,19 @@ export const getProfile = async (username: string): Promise<Profile | null> => {
         const { data, error } = await supabase
             .from('profesoria_profiles')
             .select('*')
-            .eq('username', username)
-            .single();
+            .eq('username', username);
 
-        if (error) {
-            if (error.code === 'PGRST116') {
-                // Not found in Supabase, check localStorage
-                return getProfileFromLocalStorage(username);
-            }
-            throw error;
+        if (error) throw error;
+
+        if (!data || data.length === 0) {
+            return getProfileFromLocalStorage(username);
         }
 
+        const profileData = data[0];
+
         // Save to localStorage as cache
-        saveProfileToLocalStorage(username, data);
-        return data;
+        saveProfileToLocalStorage(username, profileData);
+        return profileData;
     } catch (error) {
         console.warn('Supabase getProfile failed, using localStorage:', error);
         return getProfileFromLocalStorage(username);
@@ -229,27 +197,52 @@ export const getPronunciations = async (username: string, limit: number = 10): P
 // LOCALSTORAGE FALLBACK
 // ============================================
 
+// ============================================
+// LOCALSTORAGE FALLBACK
+// ============================================
+
 const PROFILE_PREFIX = 'profesoria_profile_';
 const SESSIONS_PREFIX = 'profesoria_sessions_';
 const PRONUNCIATION_PREFIX = 'profesoria_pronunciation_';
 
+// Safe localStorage wrapper to prevent QuotaExceededError crashes
+const safeSetItem = (key: string, value: string) => {
+    try {
+        localStorage.setItem(key, value);
+    } catch (e: any) {
+        console.warn('LocalStorage Quota Exceeded or Error:', e);
+        // Optional: clear old sessions if quota exceeded?
+        // For now, we just swallow the error to keep the app running.
+    }
+};
+
+const safeGetItem = (key: string): string | null => {
+    try {
+        return localStorage.getItem(key);
+    } catch (e) {
+        return null;
+    }
+};
+
 function getProfileFromLocalStorage(username: string): Profile | null {
-    const stored = localStorage.getItem(PROFILE_PREFIX + username);
+    const stored = safeGetItem(PROFILE_PREFIX + username);
     return stored ? JSON.parse(stored) : null;
 }
 
 function saveProfileToLocalStorage(username: string, profile: Profile): void {
-    localStorage.setItem(PROFILE_PREFIX + username, JSON.stringify(profile));
+    safeSetItem(PROFILE_PREFIX + username, JSON.stringify(profile));
 }
 
 function saveSessionToLocalStorage(session: Session): void {
     const sessions = getSessionsFromLocalStorage(session.username, 100);
     sessions.unshift({ ...session, id: crypto.randomUUID(), created_at: new Date().toISOString() });
-    localStorage.setItem(SESSIONS_PREFIX + session.username, JSON.stringify(sessions));
+    // Limit to 50 to prevent overflow
+    if (sessions.length > 50) sessions.length = 50;
+    safeSetItem(SESSIONS_PREFIX + session.username, JSON.stringify(sessions));
 }
 
 function getSessionsFromLocalStorage(username: string, limit: number): Session[] {
-    const stored = localStorage.getItem(SESSIONS_PREFIX + username);
+    const stored = safeGetItem(SESSIONS_PREFIX + username);
     const sessions: Session[] = stored ? JSON.parse(stored) : [];
     return sessions.slice(0, limit);
 }
@@ -257,14 +250,115 @@ function getSessionsFromLocalStorage(username: string, limit: number): Session[]
 function savePronunciationToLocalStorage(result: PronunciationResult): void {
     const results = getPronunciationsFromLocalStorage(result.username, 100);
     results.unshift({ ...result, id: crypto.randomUUID(), created_at: new Date().toISOString() });
-    localStorage.setItem(PRONUNCIATION_PREFIX + result.username, JSON.stringify(results));
+    // Limit history
+    if (results.length > 50) results.length = 50;
+    safeSetItem(PRONUNCIATION_PREFIX + result.username, JSON.stringify(results));
 }
 
 function getPronunciationsFromLocalStorage(username: string, limit: number): PronunciationResult[] {
-    const stored = localStorage.getItem(PRONUNCIATION_PREFIX + username);
+    const stored = safeGetItem(PRONUNCIATION_PREFIX + username);
     const results: PronunciationResult[] = stored ? JSON.parse(stored) : [];
     return results.slice(0, limit);
 }
+
+// ============================================
+// ACADEMY MANAGEMENT
+// ============================================
+
+const SYLLABUS_PREFIX = 'profesoria_syllabus_';
+
+
+export const saveSyllabus = async (username: string, syllabus: string[]): Promise<void> => {
+    // 1. Local
+    safeSetItem(SYLLABUS_PREFIX + username, JSON.stringify(syllabus));
+
+    // 2. Cloud
+    try {
+        const { error } = await supabase
+            .from('profesoria_course_progress')
+            .upsert({
+                username,
+                syllabus,
+                last_updated: new Date().toISOString()
+            }, { onConflict: 'username' });
+        if (error) throw error;
+    } catch (e) {
+        console.warn('Supabase saveSyllabus failed:', e);
+    }
+};
+
+export const getSyllabus = async (username: string): Promise<string[] | null> => {
+    // 1. Try Cloud
+    try {
+        const { data } = await supabase
+            .from('profesoria_course_progress')
+            .select('syllabus')
+            .eq('username', username)
+            .single();
+
+        if (data?.syllabus && Array.isArray(data.syllabus) && data.syllabus.length > 0) {
+            // Update cache
+            safeSetItem(SYLLABUS_PREFIX + username, JSON.stringify(data.syllabus));
+            return data.syllabus;
+        }
+    } catch (e) {
+        // Fallback
+    }
+
+    // 2. Fallback Local
+    const stored = safeGetItem(SYLLABUS_PREFIX + username);
+    return stored ? JSON.parse(stored) : null;
+};
+
+export const saveCourseProgress = async (progress: CourseProgress): Promise<void> => {
+    // 1. Local
+    safeSetItem('profesoria_course_' + progress.username, JSON.stringify(progress));
+
+    // 2. Cloud
+    try {
+        const { error } = await supabase
+            .from('profesoria_course_progress')
+            .upsert({
+                username: progress.username,
+                completed_lessons: progress.completed_lessons,
+                current_module_index: progress.current_module_index,
+                last_updated: new Date().toISOString()
+            }, { onConflict: 'username' });
+
+        if (error) throw error;
+    } catch (e) {
+        console.warn('Supabase saveCourseProgress failed:', e);
+    }
+};
+
+export const getCourseProgress = async (username: string): Promise<CourseProgress | null> => {
+    // 1. Try Cloud
+    try {
+        const { data } = await supabase
+            .from('profesoria_course_progress')
+            .select('*')
+            .eq('username', username)
+            .single();
+
+        if (data) {
+            const courseProgress: CourseProgress = {
+                username: data.username,
+                syllabus: data.syllabus || [],
+                completed_lessons: data.completed_lessons || [],
+                current_module_index: data.current_module_index || 0
+            };
+            // Update cache
+            safeSetItem('profesoria_course_' + username, JSON.stringify(courseProgress));
+            return courseProgress;
+        }
+    } catch (e) {
+        // Fallback
+    }
+
+    // 2. Fallback Local
+    const stored = safeGetItem('profesoria_course_' + username);
+    return stored ? JSON.parse(stored) : null;
+};
 
 // ============================================
 // UTILITIES

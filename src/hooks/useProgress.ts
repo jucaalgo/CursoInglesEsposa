@@ -1,10 +1,8 @@
 import { useState, useCallback, useEffect } from 'react';
 import { UserProfile, Course } from '../../types';
+import { updateProgress, getProfile } from '../../services/repository';
 
-const XP_KEY = 'profesoria_xp';
-const LEVEL_KEY = 'profesoria_level';
-
-interface ProgressData {
+export interface ProgressData {
     totalXP: number;
     currentLevelXP: number;
     level: number;
@@ -13,7 +11,7 @@ interface ProgressData {
 }
 
 // XP required for each level (increases progressively)
-const xpForLevel = (level: number): number => {
+export const xpForLevel = (level: number): number => {
     return Math.floor(100 * Math.pow(1.2, level - 1));
 };
 
@@ -26,60 +24,49 @@ export const useProgress = () => {
         modulesCompleted: 0
     });
 
-    // Load progress on mount
+    // Load progress from repository (Single Source of Truth)
     useEffect(() => {
-        const savedXP = localStorage.getItem(XP_KEY);
-        const savedLevel = localStorage.getItem(LEVEL_KEY);
-
-        if (savedXP && savedLevel) {
-            const totalXP = parseInt(savedXP, 10);
-            const level = parseInt(savedLevel, 10);
-            let currentLevelXP = totalXP;
-
-            // Calculate XP for current level
-            for (let i = 1; i < level; i++) {
-                currentLevelXP -= xpForLevel(i);
+        const loadFromRepo = async () => {
+            const user = localStorage.getItem('profesoria_current_user');
+            if (user) {
+                const profile = await getProfile(user);
+                if (profile) {
+                    const levelNum = 1; // Simplify level calc for now or implement mapping A1->1, A2->2 etc
+                    setProgress(prev => ({
+                        ...prev,
+                        totalXP: profile.xp_total,
+                        // Recalculate level based on XP logic inside hook or sync with profile
+                    }));
+                }
             }
-
-            setProgress(prev => ({
-                ...prev,
-                totalXP,
-                level,
-                currentLevelXP
-            }));
-        }
+        };
+        loadFromRepo();
     }, []);
 
     // Award XP and handle level ups
-    const awardXP = useCallback((amount: number): { leveledUp: boolean; newLevel: number } => {
+    const awardXP = useCallback(async (amount: number, username: string): Promise<{ leveledUp: boolean; newLevel: number }> => {
         let leveledUp = false;
         let newLevel = progress.level;
 
+        // Optimistic update local state
         setProgress(prev => {
-            let totalXP = prev.totalXP + amount;
+            const totalXP = prev.totalXP + amount;
             let currentLevelXP = prev.currentLevelXP + amount;
             let level = prev.level;
 
-            // Check for level up
             while (currentLevelXP >= xpForLevel(level)) {
                 currentLevelXP -= xpForLevel(level);
                 level++;
                 leveledUp = true;
                 newLevel = level;
             }
-
-            // Save to localStorage
-            localStorage.setItem(XP_KEY, totalXP.toString());
-            localStorage.setItem(LEVEL_KEY, level.toString());
-
-            return {
-                ...prev,
-                totalXP,
-                currentLevelXP,
-                level,
-                lessonsCompleted: prev.lessonsCompleted + 1
-            };
+            return { ...prev, totalXP, currentLevelXP, level };
         });
+
+        // Persist via repository
+        try {
+            await updateProgress(username, amount);
+        } catch (e) { console.error("Failed to save progress", e); }
 
         return { leveledUp, newLevel };
     }, [progress.level]);

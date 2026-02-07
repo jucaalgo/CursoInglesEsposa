@@ -1,5 +1,6 @@
+export { GoogleGenAI, Type, Modality };
 import { GoogleGenAI, Type, Modality, LiveServerMessage } from "@google/genai";
-import { UserProfile, Course, ChatMessage, InteractiveContent, PronunciationResult, Lesson, Module } from "../types";
+import { UserProfile, Course, ChatMessage, InteractiveContent, PronunciationResult, PronunciationAnalysis, Lesson, Module } from "../types";
 
 // Helper to get client with current key
 // MODIFIED: Checks LocalStorage first, then Env variable safely.
@@ -112,7 +113,7 @@ export const generateSyllabus = async (profile: UserProfile): Promise<string[]> 
   const client = getClient();
   const prompt = `
       Act as a Lead Curriculum Designer.
-      Student Profile: Level ${profile.currentLevel} -> ${profile.targetLevel}. Interests: ${profile.interests.join(', ')}.
+      Student Profile: Level ${profile.current_level} -> ${profile.target_level}. Interests: ${profile.interests.join(', ')}.
       
       Create a comprehensive list of exactly 50 FOCUS AREAS (Broad Topics) for their learning journey.
       Examples: "Airport Survival", "Business Email Etiquette", "Past Tense Mastery", "Ordering Food".
@@ -121,7 +122,7 @@ export const generateSyllabus = async (profile: UserProfile): Promise<string[]> 
     `;
 
   try {
-    const response = await client.models.generateContent({
+    const fetchSyllabus = client.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: prompt,
       config: {
@@ -132,6 +133,10 @@ export const generateSyllabus = async (profile: UserProfile): Promise<string[]> 
         }
       }
     });
+
+    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Syllabus generation timed out")), 60000));
+    const response = await Promise.race([fetchSyllabus, timeout]) as any;
+
     return JSON.parse(response.text || '[]');
   } catch (e) {
     console.error("Syllabus gen error", e);
@@ -149,7 +154,7 @@ export const generateModuleLessons = async (moduleTitle: string, userLevel: stri
     `;
 
   try {
-    const response = await client.models.generateContent({
+    const fetchLessons = client.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: prompt,
       config: {
@@ -160,6 +165,10 @@ export const generateModuleLessons = async (moduleTitle: string, userLevel: stri
         }
       }
     });
+
+    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Lesson generation timed out")), 45000));
+    const response = await Promise.race([fetchLessons, timeout]) as any;
+
     return JSON.parse(response.text || '[]');
   } catch (e) {
     return Array.from({ length: 10 }, (_, i) => `${moduleTitle} - Step ${i + 1}`);
@@ -283,21 +292,32 @@ export const generateInteractiveContent = async (lessonTitle: string, userLevel:
     const text = response.text || '{}';
     const json = JSON.parse(text);
 
-    if (!json.scenario || !json.vocabulary) {
-      throw new Error("Received incomplete lesson structure.");
+    // Sanitize scenario
+    if (!json.scenario) {
+      json.scenario = { description: "Topic lesson context.", dialogueScript: "Tutor: Hello!\nStudent: Hi!" };
     }
 
-    // Sanitize defaults
+    // Sanitize vocabulary
+    if (!json.vocabulary) json.vocabulary = [];
+
+    // Sanitize quiz (CRITICAL FIX)
+    if (!json.quiz) json.quiz = [];
+
+    // Sanitize fillInBlanks
     if (!json.fillInBlanks) json.fillInBlanks = [];
+
+    // Sanitize scramble
     if (!json.scramble) {
-      json.scramble = { id: 'def', sentence: 'Hello world', scrambledParts: ['world', 'Hello'], translation: 'Hola mundo' };
+      json.scramble = { id: 'def', sentence: 'Learning English is fun.', scrambledParts: ['fun.', 'English', 'is', 'Learning'], translation: 'Aprender inglés es divertido.' };
     }
+
+    // Sanitize conversation/roleplay
     if (!json.conversation || !json.conversation.turns) {
       json.conversation = {
-        goal: "Practice greeting",
+        goal: "Practice the lesson topic in a conversation.",
         turns: [
-          { speaker: "Tutor", text: "Hello!" },
-          { speaker: "Student", text: "Hi, how are you?" }
+          { speaker: "Tutor", text: "How can I help you today?" },
+          { speaker: "Student", text: "I want to practice my English." }
         ]
       };
     }
@@ -315,7 +335,7 @@ export const evaluatePronunciation = async (
   targetPhrase: string,
   audioBase64: string,
   userLevel: string
-): Promise<PronunciationResult> => {
+): Promise<PronunciationAnalysis> => {
   try {
     const client = getClient();
     const parts = [
@@ -335,7 +355,7 @@ export const evaluatePronunciation = async (
       }
     ];
 
-    const response = await client.models.generateContent({
+    const fetchEval = client.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: { parts },
       config: {
@@ -364,10 +384,14 @@ export const evaluatePronunciation = async (
       }
     });
 
-    return JSON.parse(response.text || '{"score": 0, "feedback": "Could not analyze", "words": []}');
+    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Pronunciation analysis timed out")), 30000));
+    const response = await Promise.race([fetchEval, timeout]) as any;
+
+    const result = JSON.parse(response.text || '{"score": 0, "feedback": "Could not analyze", "words": []}');
+    return { ...result, phrase: targetPhrase };
   } catch (e) {
     console.error("Pronunciation eval error", e);
-    return { score: 0, feedback: "Analysis error. Check API Key.", words: [] };
+    return { phrase: targetPhrase, score: 0, feedback: "Analysis error or timeout. Check connection.", words: [] };
   }
 };
 
@@ -388,7 +412,7 @@ export const analyzeStudentResponse = async (
   }
 
   try {
-    const response = await client.models.generateContent({
+    const fetchChat = client.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: { parts },
       config: {
@@ -404,6 +428,9 @@ export const analyzeStudentResponse = async (
       }
     });
 
+    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Chat analysis timed out")), 20000));
+    const response = await Promise.race([fetchChat, timeout]) as any;
+
     const analysis = JSON.parse(response.text || '{}');
     return {
       id: Date.now().toString(),
@@ -417,7 +444,7 @@ export const analyzeStudentResponse = async (
     };
   } catch (e) {
     console.error("Analysis error", e);
-    return { id: Date.now().toString(), role: 'model', text: "I understood that. Good job!", corrections: [] };
+    return { id: Date.now().toString(), role: 'model', text: "I understood that. Good job! (Response delayed)", corrections: [] };
   }
 };
 
@@ -484,7 +511,7 @@ export class LiveSession {
 
     // Updated to latest live model
     const config = {
-      model: 'gemini-2.5-flash-native-audio-preview-12-2025',
+      model: 'models/gemini-2.5-flash-native-audio-preview-12-2025',
       callbacks: {
         onopen: async () => {
           if (this.stream) this.startAudioStream(this.stream);

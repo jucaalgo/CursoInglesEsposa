@@ -1,35 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Mic, MicOff, Phone, PhoneOff, Volume2, ArrowLeft, Flame, Star, MessageCircle, LogOut, Sparkles, CheckCircle, XCircle, Book, Play, RotateCcw } from 'lucide-react';
-import { LiveSession, evaluatePronunciation, generateSpeech, playRawAudio, GoogleGenAI, Type } from './services/gemini';
-import { getProfile, saveProfile, updateProgress, saveSession, savePronunciation, getSessions, getPronunciations, Profile, Session, PronunciationResult } from './services/repository';
+import { Mic, MicOff, Phone, PhoneOff, Volume2, ArrowLeft, Flame, Star, MessageCircle, LogOut, Sparkles, CheckCircle, XCircle, Book, Play, RotateCcw, Settings } from 'lucide-react';
+import { LiveSession, evaluatePronunciation, generateSpeech, playRawAudio, GoogleGenAI, generateSyllabus, generateModuleLessons, generateInteractiveContent, generateLessonImage } from './services/gemini';
+import { getProfile, saveProfile, updateProgress, saveSession, savePronunciation, getSyllabus, saveSyllabus, saveCourseProgress, getCourseProgress } from './services/repository';
+import { Profile, Session, PronunciationResult, PronunciationAnalysis, CourseProgress, WordAnalysis, VocabWord, ConversationScenario, AcademyExerciseContent, InteractiveContent } from './types';
 
 // ============================================
-// TYPES
+// DATA & CONSTANTS
 // ============================================
-interface WordAnalysis {
-    word: string;
-    isCorrect: boolean;
-    errorType?: string;
-    suggestion?: string;
-}
-
-interface VocabWord {
-    id: string;
-    word: string;
-    phonetic: string;
-    translation: string;
-    example: string;
-    level: string;
-}
-
-interface ConversationScenario {
-    id: string;
-    title: string;
-    titleEs: string;
-    description: string;
-    icon: string;
-    systemPrompt: string;
-}
 
 const SCENARIOS: ConversationScenario[] = [
     {
@@ -129,26 +106,39 @@ const useAudioRecorder = () => {
 const LoginScreen: React.FC<{ onLogin: (username: string) => void }> = ({ onLogin }) => {
     const [name, setName] = useState('');
 
+    useEffect(() => {
+        const saved = localStorage.getItem('profesoria_current_user');
+        if (saved) setName(saved);
+    }, []);
+
     return (
         <div className="login-screen">
-            <div className="login-card">
+            <div className="login-card animate-bounce-in">
                 <div className="login-header">
-                    <span className="emoji-large">🎓</span>
+                    <div className="logo-badge">🎓</div>
                     <h1>Profesoria</h1>
-                    <p>Tu tutor de inglés con IA</p>
+                    <p>Tu camino al dominio del inglés</p>
                 </div>
-                <form onSubmit={(e) => { e.preventDefault(); if (name.trim()) onLogin(name.trim()); }}>
+                <div className="login-form">
+                    <label>¿Cómo deberíamos llamarte?</label>
                     <input
                         type="text"
                         value={name}
                         onChange={(e) => setName(e.target.value)}
-                        placeholder="¿Cómo te llamas?"
+                        placeholder="Escribe tu nombre aquí..."
                         autoFocus
                     />
-                    <button type="submit" disabled={!name.trim()} className="btn-primary">
-                        Comenzar 🚀
+                    <button
+                        onClick={() => { if (name.trim()) onLogin(name.trim()); }}
+                        disabled={!name.trim()}
+                        className="btn-primary login-btn"
+                    >
+                        Entrar a mi Academia 🚀
                     </button>
-                </form>
+                </div>
+                <div className="login-footer">
+                    <p>IA impulsada por Gemini 2.5 Flash</p>
+                </div>
             </div>
         </div>
     );
@@ -249,6 +239,16 @@ const DashboardScreen: React.FC<{
     onSelectScenario: (scenario: ConversationScenario | string) => void;
     onLogout: () => void;
 }> = ({ profile, onSelectScenario, onLogout }) => {
+    const [doneCount, setDoneCount] = useState(0);
+
+    useEffect(() => {
+        const loadProgress = async () => {
+            const progress = await getCourseProgress(profile.username);
+            if (progress) setDoneCount(progress.completed_lessons.length);
+        };
+        loadProgress();
+    }, [profile.username]);
+
     return (
         <div className="dashboard">
             <header className="dashboard-header">
@@ -256,7 +256,10 @@ const DashboardScreen: React.FC<{
                     <h1>Hola, {profile.name}! 👋</h1>
                     <p>{profile.current_level} → {profile.target_level}</p>
                 </div>
-                <button onClick={onLogout} className="icon-btn"><LogOut size={20} /></button>
+                <div className="header-actions">
+                    <button onClick={() => onSelectScenario('settings')} className="icon-btn"><Settings size={20} /></button>
+                    <button onClick={onLogout} className="icon-btn"><LogOut size={20} /></button>
+                </div>
             </header>
 
             <div className="stats-row">
@@ -273,8 +276,22 @@ const DashboardScreen: React.FC<{
             </div>
 
             <h2 className="section-title">
+                <Book size={20} />
+                Mi Academia
+            </h2>
+            <div className="academy-preview">
+                <div className="academy-card" onClick={() => onSelectScenario('academy')}>
+                    <div className="academy-info">
+                        <h3>Curso Estructural</h3>
+                        <p>Lecciones completadas: {doneCount} / 50</p>
+                    </div>
+                    <span className="btn-start">Continuar →</span>
+                </div>
+            </div>
+
+            <h2 className="section-title">
                 <MessageCircle size={20} />
-                ¿Qué quieres practicar?
+                Práctica Libre
             </h2>
 
             <div className="scenario-list">
@@ -483,8 +500,11 @@ const VocabScreen: React.FC<{
     const [currentIndex, setCurrentIndex] = useState(0);
     const [isFlipped, setIsFlipped] = useState(false);
     const [isPlaying, setIsPlaying] = useState(false);
+    const [isTransitioning, setIsTransitioning] = useState(false);
 
-    const currentWord = VOCAB_WORDS[currentIndex];
+    const currentWord = VOCAB_WORDS[currentIndex] || VOCAB_WORDS[0];
+
+    if (!currentWord) return <div>No hay palabras disponibles</div>;
 
     const playWord = async () => {
         setIsPlaying(true);
@@ -499,9 +519,19 @@ const VocabScreen: React.FC<{
     };
 
     const nextWord = () => {
+        if (isTransitioning) return;
+        setIsTransitioning(true);
         setIsFlipped(false);
-        setCurrentIndex((currentIndex + 1) % VOCAB_WORDS.length);
-        onAddXp(5);
+
+        setTimeout(() => {
+            if (currentIndex === VOCAB_WORDS.length - 1) {
+                setCurrentIndex(0);
+            } else {
+                setCurrentIndex(currentIndex + 1);
+            }
+            onAddXp(5);
+            setIsTransitioning(false);
+        }, 100);
     };
 
     return (
@@ -718,7 +748,16 @@ const App: React.FC = () => {
     const [currentUser, setCurrentUser] = useState<string | null>(null);
     const [profile, setProfile] = useState<Profile | null>(null);
     const [selectedScenario, setSelectedScenario] = useState<ConversationScenario | null>(null);
-    const [appState, setAppState] = useState<'loading' | 'login' | 'onboarding' | 'dashboard' | 'call' | 'vocab' | 'pronunciation'>('loading');
+    const [appState, setAppState] = useState<'loading' | 'login' | 'onboarding' | 'dashboard' | 'call' | 'vocab' | 'pronunciation' | 'settings' | 'academy'>('loading');
+    const [error, setError] = useState<string | null>(null);
+
+    // Auto-clear error after 5s
+    useEffect(() => {
+        if (error) {
+            const timer = setTimeout(() => setError(null), 5000);
+            return () => clearTimeout(timer);
+        }
+    }, [error]);
 
     useEffect(() => {
         const loadUser = async () => {
@@ -770,11 +809,7 @@ const App: React.FC = () => {
 
     const handleSelectScenario = (scenario: ConversationScenario | string) => {
         if (typeof scenario === 'string') {
-            if (scenario === 'vocab') {
-                setAppState('vocab');
-            } else if (scenario === 'pronunciation') {
-                setAppState('pronunciation');
-            }
+            setAppState(scenario as any);
         } else {
             setSelectedScenario(scenario);
             setAppState('call');
@@ -790,32 +825,512 @@ const App: React.FC = () => {
 
     const addXp = async (amount: number) => {
         if (currentUser && profile) {
-            await updateProgress(currentUser, amount);
-            const updatedProfile = await getProfile(currentUser);
-            if (updatedProfile) {
-                setProfile(updatedProfile);
-            }
+            // Update local state first for instant feedback (Optimistic Update)
+            const updatedProfile = { ...profile, xp_total: profile.xp_total + amount };
+            setProfile(updatedProfile);
+
+            // Then persist
+            await updateProgress(currentUser, amount).catch(console.error);
         }
     };
 
-    switch (appState) {
-        case 'loading':
-            return <div className="loading-screen"><span>🎓</span><p>Cargando...</p></div>;
-        case 'login':
-            return <LoginScreen onLogin={handleLogin} />;
-        case 'onboarding':
-            return <OnboardingScreen name={currentUser!} onComplete={handleOnboardingComplete} />;
-        case 'dashboard':
-            return <DashboardScreen profile={profile!} onSelectScenario={handleSelectScenario} onLogout={handleLogout} />;
-        case 'call':
-            return <LiveCallScreen scenario={selectedScenario!} profile={profile!} onBack={() => setAppState('dashboard')} onAddXp={addXp} />;
-        case 'vocab':
-            return <VocabScreen profile={profile!} onBack={() => setAppState('dashboard')} onAddXp={addXp} />;
-        case 'pronunciation':
-            return <PronunciationScreen profile={profile!} onBack={() => setAppState('dashboard')} onAddXp={addXp} />;
-        default:
-            return null;
+    const SettingsScreen = () => {
+        const [apiKey, setApiKey] = useState(localStorage.getItem('profesoria_api_key') || '');
+        const [saved, setSaved] = useState(false);
+
+        const handleSave = () => {
+            localStorage.setItem('profesoria_api_key', apiKey);
+            setSaved(true);
+            setTimeout(() => setSaved(false), 2000);
+        };
+
+        const handleResetProgress = () => {
+            if (confirm("¿Estás seguro? Esto borrará TODO: tu usuario, perfil, progreso y syllabus. Tendrás que crear tu cuenta de nuevo.")) {
+                if (currentUser) {
+                    // Delete all user related keys
+                    localStorage.removeItem('profesoria_profile_' + currentUser);
+                    localStorage.removeItem('profesoria_syllabus_' + currentUser);
+                    localStorage.removeItem('profesoria_course_' + currentUser);
+                    localStorage.removeItem('profesoria_sessions_' + currentUser);
+                    localStorage.removeItem('profesoria_xp'); // Legacy
+                    localStorage.removeItem('profesoria_level'); // Legacy
+
+                    // Logout effectively
+                    localStorage.removeItem('profesoria_current_user');
+
+                    // Reload to force fresh start
+                    window.location.reload();
+                }
+            }
+        };
+
+        return (
+            <div className="settings-screen">
+                <header className="screen-header">
+                    <button onClick={() => setAppState('dashboard')} className="icon-btn"><ArrowLeft size={24} /></button>
+                    <h1>Configuración</h1>
+                </header>
+                <div className="settings-body">
+                    <div className="settings-card">
+                        <h3>Google Gemini API Key</h3>
+                        <p className="hint">Para que el tutor de voz y la pronunciación funcionen, necesitas una API Key.</p>
+                        <input
+                            type="password"
+                            value={apiKey}
+                            onChange={(e) => setApiKey(e.target.value)}
+                            placeholder="Introduce tu API Key aquí..."
+                            className="api-input"
+                        />
+                        <button onClick={handleSave} className="btn-primary">
+                            {saved ? '¡Guardado! ✓' : 'Guardar Configuración'}
+                        </button>
+                    </div>
+
+                    <div className="settings-card danger-zone">
+                        <h3>Zona de Peligro</h3>
+                        <p className="hint">Herramientas de diagnóstico y reseteo.</p>
+                        <button onClick={handleResetProgress} className="btn-secondary text-red">
+                            🗑️ Resetear Progreso & Syllabus
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    return (
+        <div className="app-container">
+            {error && (
+                <div className="error-toast animate-bounce-in">
+                    <span>⚠️ {error}</span>
+                    <button onClick={() => setError(null)}>×</button>
+                </div>
+            )}
+
+            {appState === 'loading' && <div className="loading-screen"><span>🎓</span><p>Cargando...</p></div>}
+            {appState === 'login' && <LoginScreen onLogin={handleLogin} />}
+            {appState === 'onboarding' && <OnboardingScreen name={currentUser!} onComplete={handleOnboardingComplete} />}
+            {appState === 'dashboard' && <DashboardScreen profile={profile!} onSelectScenario={handleSelectScenario} onLogout={handleLogout} />}
+            {appState === 'call' && <LiveCallScreen scenario={selectedScenario!} profile={profile!} onBack={() => setAppState('dashboard')} onAddXp={addXp} />}
+            {appState === 'vocab' && <VocabScreen profile={profile!} onBack={() => setAppState('dashboard')} onAddXp={addXp} />}
+            {appState === 'pronunciation' && <PronunciationScreen profile={profile!} onBack={() => setAppState('dashboard')} onAddXp={addXp} />}
+            {appState === 'settings' && <SettingsScreen />}
+            {appState === 'academy' && <AcademyScreen profile={profile!} onBack={() => setAppState('dashboard')} onAddXp={addXp} onError={setError} />}
+        </div>
+    );
+};
+
+const AcademyScreen: React.FC<{
+    profile: Profile;
+    onBack: () => void;
+    onAddXp: (amount: number) => void;
+    onError: (msg: string) => void;
+}> = ({ profile, onBack, onAddXp, onError }) => {
+    const [syllabus, setSyllabus] = useState<string[]>([]);
+    const [isLoadingSyllabus, setIsLoadingSyllabus] = useState(false);
+    const [selectedLesson, setSelectedLesson] = useState<string | null>(null);
+    const [lessonContent, setLessonContent] = useState<AcademyExerciseContent | null>(null);
+    const [lessonStep, setLessonStep] = useState<'loading' | 'intro' | 'vocab' | 'quiz' | 'fill' | 'scramble' | 'speaking' | 'done'>('loading');
+    const [currentStepIndex, setCurrentStepIndex] = useState(0);
+    const [speakingTurnIndex, setSpeakingTurnIndex] = useState(0);
+    const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [voiceResult, setVoiceResult] = useState<PronunciationAnalysis | null>(null);
+
+    const { isRecording, audioBlob, startRecording, stopRecording, resetRecording } = useAudioRecorder();
+
+    const [completedLessons, setCompletedLessons] = useState<string[]>([]);
+
+    useEffect(() => {
+        const loadSyllabus = async () => {
+            const stored = await getSyllabus(profile.username);
+            if (stored && stored.length > 0) {
+                setSyllabus(stored);
+            } else {
+                // Auto-generate if empty and not already loading
+                handleGenerateSyllabus();
+            }
+
+            const progress = await getCourseProgress(profile.username);
+            if (progress) setCompletedLessons(progress.completed_lessons);
+        };
+        loadSyllabus();
+    }, [profile.username]);
+
+    const handleGenerateSyllabus = async () => {
+        setIsLoadingSyllabus(true);
+        try {
+            const newSyllabus = await generateSyllabus({
+                currentLevel: profile.current_level,
+                targetLevel: profile.target_level,
+                interests: profile.interests
+            } as any);
+            setSyllabus(newSyllabus);
+            await saveSyllabus(profile.username, newSyllabus);
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setIsLoadingSyllabus(false);
+        }
+    };
+
+    const startLesson = async (title: string) => {
+        setSelectedLesson(title);
+        setLessonStep('loading');
+        setCurrentStepIndex(0);
+        setSpeakingTurnIndex(0);
+        try {
+            const content = await generateInteractiveContent(title, profile.current_level, "English Course");
+            setLessonContent(content);
+            setLessonStep('intro');
+        } catch (e) {
+            console.error(e);
+            onError("Error cargando lección. Reintenta.");
+            setSelectedLesson(null);
+        }
+    };
+
+    const handleAnalyzeVoice = async () => {
+        if (!audioBlob || isAnalyzing) return;
+        setIsAnalyzing(true);
+        try {
+            const reader = new FileReader();
+            reader.readAsDataURL(audioBlob);
+            reader.onloadend = async () => {
+                const base64Audio = (reader.result as string).split(',')[1];
+                const targetText = lessonContent!.conversation.turns[speakingTurnIndex].text;
+                const analysis = await evaluatePronunciation(targetText, base64Audio, profile.current_level);
+                setVoiceResult(analysis);
+                setIsAnalyzing(false);
+            };
+        } catch (e) {
+            console.error(e);
+            setIsAnalyzing(false);
+        }
+    };
+
+    useEffect(() => {
+        if (audioBlob && !isRecording && lessonStep === 'speaking') {
+            handleAnalyzeVoice();
+        }
+    }, [audioBlob, isRecording]);
+
+    if (selectedLesson) {
+        if (!lessonContent) {
+            return (
+                <div className="academy-lesson-view">
+                    <header className="screen-header">
+                        <button onClick={() => setSelectedLesson(null)} className="icon-btn"><ArrowLeft size={24} /></button>
+                        <h1>Cargando Lección...</h1>
+                    </header>
+                    <div className="loading-state">
+                        <div className="spinner"></div>
+                        <p>Generando material estructural para {selectedLesson}...</p>
+                    </div>
+                </div>
+            );
+        }
+
+        return (
+            <div className="academy-lesson-view animate-fade-in">
+                <header className="screen-header">
+                    <button onClick={() => setSelectedLesson(null)} className="icon-btn"><ArrowLeft size={24} /></button>
+                    <h1>{selectedLesson}</h1>
+                </header>
+
+                <div className="lesson-container">
+                    {lessonStep === 'loading' && <div className="loading-state">✨ Generando ejercicios mágicos...</div>}
+
+                    {lessonStep === 'intro' && (
+                        <div className="lesson-intro animate-fade-in">
+                            <div className="scenario-card-premium">
+                                <h3><Book size={20} /> Contexto de Hoy</h3>
+                                <p>{lessonContent.scenario.description}</p>
+                                <div className="dialogue-box">
+                                    <div className="dialogue-text">{lessonContent.scenario.dialogueScript}</div>
+                                </div>
+                            </div>
+                            <button className="btn-primary" onClick={() => setLessonStep('vocab')}>Continuar al Vocabulario →</button>
+                        </div>
+                    )}
+
+                    {lessonStep === 'vocab' && (
+                        <div className="lesson-step animate-fade-in">
+                            <div className="step-header">
+                                <h2>Vocabulario Clave</h2>
+                                <p>Aprende estos términos del contexto</p>
+                            </div>
+                            <div className="vocab-grid-academy">
+                                {lessonContent.vocabulary && lessonContent.vocabulary.length > 0 ? (
+                                    lessonContent.vocabulary.map((v, i) => (
+                                        <div key={i} className="vocab-item-mini">
+                                            <h4>{v.term}</h4>
+                                            <p>{v.definition}</p>
+                                        </div>
+                                    ))
+                                ) : <p>No hay vocabulario disponible para esta lección.</p>}
+                            </div>
+                            <button className="btn-primary" onClick={() => setLessonStep('quiz')}>
+                                {lessonContent.vocabulary?.length ? '¡Lo tengo! Siguiente →' : 'Omitir Sección →'}
+                            </button>
+                        </div>
+                    )}
+
+                    {lessonStep === 'quiz' && (
+                        <div className="lesson-step animate-fade-in">
+                            {lessonContent.quiz && lessonContent.quiz.length > 0 && lessonContent.quiz[currentStepIndex] ? (
+                                <>
+                                    <div className="step-header">
+                                        <h2>Pon a prueba tu lectura</h2>
+                                        <p>Pregunta {currentStepIndex + 1} de {lessonContent.quiz.length}</p>
+                                    </div>
+                                    <div className="quiz-card-academy">
+                                        <h3>{lessonContent.quiz[currentStepIndex].question}</h3>
+                                        <div className="options-grid">
+                                            {lessonContent.quiz[currentStepIndex].options.map((opt, i) => (
+                                                <button
+                                                    key={i}
+                                                    className="option-btn"
+                                                    onClick={() => {
+                                                        if (i === lessonContent.quiz[currentStepIndex].correctIndex) {
+                                                            if (currentStepIndex < lessonContent.quiz.length - 1) {
+                                                                setCurrentStepIndex(currentStepIndex + 1);
+                                                            } else {
+                                                                setCurrentStepIndex(0);
+                                                                setLessonStep('fill');
+                                                            }
+                                                        } else {
+                                                            alert("¡Casi! Intenta de nuevo.");
+                                                        }
+                                                    }}
+                                                >
+                                                    {opt}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="error-state">
+                                    <p>No hay preguntas disponibles.</p>
+                                    <button className="btn-primary" onClick={() => setLessonStep('fill')}>Saltar Quiz →</button>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {lessonStep === 'fill' && (
+                        <div className="lesson-step animate-fade-in">
+                            {lessonContent.fillInBlanks && lessonContent.fillInBlanks.length > 0 && lessonContent.fillInBlanks[currentStepIndex] ? (
+                                <>
+                                    <div className="step-header">
+                                        <h2>Completa la oración</h2>
+                                    </div>
+                                    <div className="fill-card-academy">
+                                        <p className="sentence-display">
+                                            {lessonContent.fillInBlanks[currentStepIndex].sentence.replace(lessonContent.fillInBlanks[currentStepIndex].correctWord, '_______')}
+                                        </p>
+                                        <div className="options-grid">
+                                            {lessonContent.fillInBlanks[currentStepIndex].options.map((opt, i) => (
+                                                <button
+                                                    key={i}
+                                                    className="option-btn"
+                                                    onClick={() => {
+                                                        if (opt === lessonContent.fillInBlanks[currentStepIndex].correctWord) {
+                                                            if (currentStepIndex < lessonContent.fillInBlanks.length - 1) {
+                                                                setCurrentStepIndex(currentStepIndex + 1);
+                                                            } else {
+                                                                setCurrentStepIndex(0);
+                                                                setLessonStep('scramble');
+                                                            }
+                                                        } else {
+                                                            alert("Incorrecto.");
+                                                        }
+                                                    }}
+                                                >
+                                                    {opt}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="error-state">
+                                    <p>No hay preguntas de completar disponibles.</p>
+                                    <button className="btn-primary" onClick={() => setLessonStep('scramble')}>Saltar Sección →</button>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {lessonStep === 'scramble' && (
+                        <div className="lesson-step animate-fade-in">
+                            {lessonContent.scramble && lessonContent.scramble.scrambledParts ? (
+                                <>
+                                    <div className="step-header">
+                                        <h2>Ordena la oración</h2>
+                                    </div>
+                                    <div className="scramble-card-academy">
+                                        <p className="translation-hint">{lessonContent.scramble.translation}</p>
+                                        <div className="scrambled-box">
+                                            {lessonContent.scramble.scrambledParts.join(' / ')}
+                                        </div>
+                                        <button className="btn-primary" onClick={() => setLessonStep('speaking')}>Siguiente: Practicar Conversación →</button>
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="error-state">
+                                    <p>No hay ejercicio de ordenar disponible.</p>
+                                    <button className="btn-primary" onClick={() => setLessonStep('speaking')}>Saltar Sección →</button>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {lessonStep === 'speaking' && lessonContent.conversation && (
+                        <div className="lesson-step animate-fade-in">
+                            <div className="step-header">
+                                <h2>Práctica de Conversación</h2>
+                                <p>{lessonContent.conversation.goal}</p>
+                            </div>
+                            <div className="conversation-practice">
+                                <div className="chat-preview">
+                                    {lessonContent.conversation.turns.map((turn, i) => (
+                                        <div key={i} className={`chat-bubble ${turn.speaker === 'Tutor' ? 'tutor' : 'student'} ${i === speakingTurnIndex ? 'active' : i > speakingTurnIndex ? 'hidden' : ''}`}>
+                                            <p>{turn.text}</p>
+                                            {i <= speakingTurnIndex && <p className="bubble-translation">{turn.translation}</p>}
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {speakingTurnIndex < lessonContent.conversation.turns.length ? (
+                                    <div className="speaking-controls text-center">
+                                        {lessonContent.conversation.turns[speakingTurnIndex].speaker === 'Tutor' ? (
+                                            <button className="btn-primary" onClick={() => {
+                                                setSpeakingTurnIndex(speakingTurnIndex + 1);
+                                                setVoiceResult(null);
+                                                resetRecording();
+                                            }}>
+                                                Escuchar Siguiente →
+                                            </button>
+                                        ) : (
+                                            <div className="voice-input-area">
+                                                {!voiceResult ? (
+                                                    <>
+                                                        <p className="instruction">Di en voz alta: <strong>{lessonContent.conversation.turns[speakingTurnIndex].text}</strong></p>
+                                                        <button
+                                                            className={`btn-record ${isRecording ? 'pulse' : ''}`}
+                                                            onClick={isRecording ? stopRecording : startRecording}
+                                                            disabled={isAnalyzing}
+                                                        >
+                                                            {isAnalyzing ? '⏳ Analizando...' : isRecording ? '🛑 Detener' : '🎤 Pulsar para hablar'}
+                                                        </button>
+                                                    </>
+                                                ) : (
+                                                    <div className="voice-feedback animate-bounce-in">
+                                                        <div className={`analysis-score ${voiceResult.score >= 85 ? 'great' : voiceResult.score >= 65 ? 'good' : 'needs-work'}`}>
+                                                            {voiceResult.score} <span className="small">/100</span>
+                                                        </div>
+                                                        <p className="feedback-text">"{voiceResult.feedback}"</p>
+
+                                                        {voiceResult.improvementTips && voiceResult.improvementTips.length > 0 && (
+                                                            <div className="improvement-tips">
+                                                                <p className="tips-title">💡 Consejos de mejora:</p>
+                                                                <ul>
+                                                                    {voiceResult.improvementTips.map((tip, i) => <li key={i}>{tip}</li>)}
+                                                                </ul>
+                                                            </div>
+                                                        )}
+
+                                                        <div className="feedback-actions">
+                                                            <button className="btn-secondary" onClick={() => { setVoiceResult(null); resetRecording(); }}>Reintentar 🔄</button>
+                                                            <button className="btn-primary" onClick={() => {
+                                                                setSpeakingTurnIndex(speakingTurnIndex + 1);
+                                                                setVoiceResult(null);
+                                                                resetRecording();
+                                                                onAddXp(15);
+                                                            }}>Buen trabajo, ¡siguiente! →</button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <button className="btn-primary w-full" onClick={() => setLessonStep('done')}>
+                                        Finalizar Lección 🏁
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {lessonStep === 'done' && (
+                        <div className="lesson-complete text-center animate-bounce-in">
+                            <Sparkles size={64} className="icon-gold mx-auto" />
+                            <h2>¡Increíble progreso!</h2>
+                            <p>Has dominado: {selectedLesson}</p>
+                            <div className="xp-badge-large">+50 XP</div>
+                            <button className="btn-primary" onClick={async () => {
+                                const updatedCompleted = [...completedLessons, selectedLesson!];
+                                setCompletedLessons(updatedCompleted);
+                                await saveCourseProgress({
+                                    username: profile.username,
+                                    syllabus,
+                                    completed_lessons: updatedCompleted,
+                                    current_module_index: updatedCompleted.length
+                                });
+                                onAddXp(50);
+                                setSelectedLesson(null);
+                            }}>Continuar Ruta →</button>
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
     }
+
+    return (
+        <div className="academy-screen">
+            <header className="screen-header">
+                <button onClick={onBack} className="icon-btn"><ArrowLeft size={24} /></button>
+                <h1>Profesoria Academy</h1>
+            </header>
+
+            <div className="academy-body">
+                {!syllabus.length ? (
+                    <div className="syllabus-empty">
+                        <Sparkles size={64} className="icon-gold animate-pulse" />
+                        <h2>Construyendo tu Academia...</h2>
+                        <div className="loading-tips">
+                            <p className="tip-label">Sabías que...</p>
+                            <p className="tip-text">Practicar 15 minutos al día es suficiente para notar avances en solo 2 semanas.</p>
+                        </div>
+                        <div className="spinner"></div>
+                        <p className="loading-msg">Analizando tu nivel e intereses para crear 50 lecciones únicas.</p>
+                        {isLoadingSyllabus && <div className="progress-bar-thin"><div className="progress-fill"></div></div>}
+                    </div>
+                ) : (
+                    <div className="learning-path">
+                        {syllabus.map((topic, i) => {
+                            const isDone = completedLessons.includes(topic);
+                            return (
+                                <div key={i} className={`path-node ${isDone ? 'is-done' : ''}`} onClick={() => startLesson(topic)}>
+                                    <div className="node-number">{isDone ? <CheckCircle size={16} /> : i + 1}</div>
+                                    <div className="node-info">
+                                        <h4>{topic}</h4>
+                                        <p>{isDone ? '¡Completada!' : 'Pulsa para empezar'}</p>
+                                    </div>
+                                    <div className="node-status">
+                                        {isDone ? <CheckCircle className="text-success" /> : <Play size={16} />}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
 };
 
 export default App;
