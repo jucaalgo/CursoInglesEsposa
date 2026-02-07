@@ -758,6 +758,7 @@ const App: React.FC = () => {
     const [selectedScenario, setSelectedScenario] = useState<ConversationScenario | null>(null);
     const [appState, setAppState] = useState<'loading' | 'login' | 'onboarding' | 'dashboard' | 'call' | 'vocab' | 'pronunciation' | 'settings' | 'academy'>('loading');
     const [error, setError] = useState<string | null>(null);
+    const [showHelp, setShowHelp] = useState(false);
 
     // Auto-clear error after 5s
     useEffect(() => {
@@ -915,6 +916,54 @@ const App: React.FC = () => {
             {appState === 'pronunciation' && <PronunciationScreen profile={profile!} onBack={() => setAppState('dashboard')} onAddXp={addXp} />}
             {appState === 'settings' && <SettingsScreen />}
             {appState === 'academy' && <AcademyScreen profile={profile!} onBack={() => setAppState('dashboard')} onAddXp={addXp} onError={setError} />}
+
+            {/* GLOBAL HELP MODAL */}
+            {showHelp && (
+                <div className="modal-overlay animate-fade-in" onClick={() => setShowHelp(false)}>
+                    <div className="modal-content help-modal" onClick={e => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <h2>🎓 Guía Rápida</h2>
+                            <button onClick={() => setShowHelp(false)}>×</button>
+                        </div>
+                        <div className="modal-body">
+                            <div className="help-item">
+                                <span className="help-icon">🗣️</span>
+                                <div>
+                                    <h4>Tutor de Voz</h4>
+                                    <p>Habla naturalmente. El tutor te corregirá la pronunciación y gramática en tiempo real.</p>
+                                </div>
+                            </div>
+                            <div className="help-item">
+                                <span className="help-icon">📚</span>
+                                <div>
+                                    <h4>Academia</h4>
+                                    <p>Sigue el camino de lecciones paso a paso. No puedes saltar niveles sin completar los anteriores.</p>
+                                </div>
+                            </div>
+                            <div className="help-item">
+                                <span className="help-icon">💾</span>
+                                <div>
+                                    <h4>Progreso</h4>
+                                    <p>Tu avance se guarda automáticamente al finalizar cada lección o sesión de práctica.</p>
+                                </div>
+                            </div>
+                            <div className="help-item">
+                                <span className="help-icon">🤖</span>
+                                <div>
+                                    <h4>Inteligencia Artificial</h4>
+                                    <p>Las lecciones son generadas al momento por AI para adaptarse a tu nivel exacto.</p>
+                                </div>
+                            </div>
+                        </div>
+                        <button className="btn-primary w-full" onClick={() => setShowHelp(false)}>¡Entendido!</button>
+                    </div>
+                </div>
+            )}
+
+            {/* FLOATING HELP BUTTON */}
+            {appState !== 'login' && appState !== 'onboarding' && (
+                <button className="floating-help-btn" onClick={() => setShowHelp(true)}>?</button>
+            )}
         </div>
     );
 };
