@@ -939,6 +939,17 @@ const AcademyScreen: React.FC<{
 
     const [completedLessons, setCompletedLessons] = useState<string[]>([]);
 
+    // Scramble Game State
+    const [scramblePool, setScramblePool] = useState<string[]>([]);
+    const [scrambleAnswer, setScrambleAnswer] = useState<string[]>([]);
+
+    useEffect(() => {
+        if (lessonStep === 'scramble' && lessonContent?.scramble?.scrambledParts) {
+            setScramblePool(lessonContent.scramble.scrambledParts);
+            setScrambleAnswer([]);
+        }
+    }, [lessonStep, lessonContent]);
+
     useEffect(() => {
         const loadSyllabus = async () => {
             const stored = await getSyllabus(profile.username);
@@ -988,7 +999,13 @@ const AcademyScreen: React.FC<{
         }
     };
 
-    const startLesson = async (title: string) => {
+    const startLesson = async (title: string, index: number) => {
+        // LOCKING LOGIC (Redundant check for güvenlik)
+        if (index > completedLessons.length) {
+            alert("🔒 ¡Completa las lecciones anteriores primero!");
+            return;
+        }
+
         setSelectedLesson(title);
         setLessonStep('loading');
         setCurrentStepIndex(0);
@@ -1186,10 +1203,58 @@ const AcademyScreen: React.FC<{
                                     </div>
                                     <div className="scramble-card-academy">
                                         <p className="translation-hint">{lessonContent.scramble.translation}</p>
-                                        <div className="scrambled-box">
-                                            {lessonContent.scramble.scrambledParts.join(' / ')}
+
+                                        {/* Area de respuesta donde van cayendo las palabras */}
+                                        <div className="scramble-answer-area">
+                                            {scrambleAnswer.length > 0 ? (
+                                                scrambleAnswer.map((word, i) => (
+                                                    <button key={`ans-${i}`} className="word-chip" onClick={() => {
+                                                        // Devolver palabra al pool
+                                                        setScrambleAnswer(prev => prev.filter((_, idx) => idx !== i));
+                                                        setScramblePool(prev => [...prev, word]);
+                                                    }}>
+                                                        {word}
+                                                    </button>
+                                                ))
+                                            ) : (
+                                                <span className="placeholder-text">Toca las palabras abajo...</span>
+                                            )}
                                         </div>
-                                        <button className="btn-primary" onClick={() => setLessonStep('speaking')}>Siguiente: Practicar Conversación →</button>
+
+                                        {/* Pool de palabras desordenadas */}
+                                        <div className="scramble-pool">
+                                            {scramblePool.map((word, i) => (
+                                                <button key={`pool-${i}`} className="word-chip pool" onClick={() => {
+                                                    // Mover a respuesta
+                                                    setScramblePool(prev => prev.filter((_, idx) => idx !== i));
+                                                    setScrambleAnswer(prev => [...prev, word]);
+                                                }}>
+                                                    {word}
+                                                </button>
+                                            ))}
+                                        </div>
+
+                                        <div className="scramble-actions">
+                                            <button className="btn-secondary" onClick={() => {
+                                                // Reset
+                                                setScramblePool(lessonContent.scramble?.scrambledParts || []);
+                                                setScrambleAnswer([]);
+                                            }}>Reset ↺</button>
+
+                                            <button className="btn-primary" onClick={() => {
+                                                // Validar
+                                                const userAnswer = scrambleAnswer.join(' ').trim();
+                                                // Normalizar para comparación (ignorar mayúsculas/puntuación simple si es estricto, pero aquí simple)
+                                                const correct = lessonContent.scramble?.correctSentence || "";
+
+                                                if (userAnswer.toLowerCase() === correct.toLowerCase()) {
+                                                    alert("¡Correcto! 🎉");
+                                                    setLessonStep('speaking');
+                                                } else {
+                                                    alert(`Casi... Intenta de nuevo.\nTu respuesta: ${userAnswer}`);
+                                                }
+                                            }}>Comprobar ✅</button>
+                                        </div>
                                     </div>
                                 </>
                             ) : (

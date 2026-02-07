@@ -180,9 +180,17 @@ export const generateModuleLessons = async (moduleTitle: string, userLevel: stri
 // MODIFIED: Robust Content Generation with Emergency Fallback
 export const generateInteractiveContent = async (lessonTitle: string, userLevel: string, moduleTitle: string = "English"): Promise<InteractiveContent> => {
   const client = getClient();
-  const prompt = `Create a SIMPLE JSON English lesson about: "${lessonTitle}". Level: ${userLevel}.
+  const prompt = `
+    ROLE: You are an Expert Cambridge English Examiner and Linguist.
+    TASK: Generate a high-quality, interactive English lesson about "${lessonTitle}".
+    LEVEL: ${userLevel} (Strict adherence required).
     
-    REQUIRED JSON STRUCTURE:
+    GUIDELINES:
+    - If Level is A1/A2: Use simple vocab, short sentences, focus on basics.
+    - If Level is B1/B2: Use compound sentences, phrasal verbs, idioms.
+    - If Level is C1/C2: Use nuance, advanced grammar (inversion, conditionals), sophisticated vocab.
+    
+    REQUIRED JSON STRUCTURE (Strictly follow field names):
     {
       "scenario": { 
           "description": "Context situation", 
