@@ -295,7 +295,7 @@ export const getSyllabus = async (username: string): Promise<string[] | null> =>
             .from('profesoria_course_progress')
             .select('syllabus')
             .eq('username', username)
-            .single();
+            .maybeSingle();
 
         if (data?.syllabus && Array.isArray(data.syllabus) && data.syllabus.length > 0) {
             // Update cache
@@ -339,7 +339,7 @@ export const getCourseProgress = async (username: string): Promise<CourseProgres
             .from('profesoria_course_progress')
             .select('*')
             .eq('username', username)
-            .single();
+            .maybeSingle();
 
         if (data) {
             const courseProgress: CourseProgress = {
