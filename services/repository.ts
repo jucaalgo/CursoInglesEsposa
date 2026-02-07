@@ -375,3 +375,29 @@ export const isSupabaseConfigured = (): boolean => {
     const key = import.meta.env?.VITE_SUPABASE_ANON_KEY;
     return !!(url && key);
 };
+
+/**
+ * HARD DELETE USER DATA
+ */
+export const deleteUserData = async (username: string): Promise<void> => {
+    // 1. Delete from Supabase (Cascade usually handles relations, but let's be safe)
+    try {
+        await supabase.from('profesoria_profiles').delete().eq('username', username);
+        await supabase.from('profesoria_sessions').delete().eq('username', username);
+        await supabase.from('profesoria_pronunciation').delete().eq('username', username);
+        await supabase.from('profesoria_course_progress').delete().eq('username', username);
+        console.log('Supabase data deleted for:', username);
+    } catch (e) {
+        console.error('Supabase delete failed:', e);
+    }
+
+    // 2. Delete from LocalStorage
+    localStorage.removeItem(PROFILE_PREFIX + username);
+    localStorage.removeItem(SYLLABUS_PREFIX + username);
+    localStorage.removeItem('profesoria_course_' + username);
+    localStorage.removeItem(SESSIONS_PREFIX + username);
+    localStorage.removeItem(PRONUNCIATION_PREFIX + username);
+
+    // 3. Clear Session
+    localStorage.removeItem('profesoria_current_user');
+};

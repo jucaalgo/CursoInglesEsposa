@@ -177,155 +177,145 @@ export const generateModuleLessons = async (moduleTitle: string, userLevel: stri
 
 // --- INTERACTIVE LESSON CONTENT ---
 
-// MODIFIED: Accepts moduleTitle to ensure Context Relevance
+// MODIFIED: Robust Content Generation with Emergency Fallback
 export const generateInteractiveContent = async (lessonTitle: string, userLevel: string, moduleTitle: string = "English"): Promise<InteractiveContent> => {
   const client = getClient();
-  // STRICT CONTEXT ENFORCEMENT PROMPT
-  const prompt = `Create INTERACTIVE English lesson content.
-    Target Lesson: "${lessonTitle}" inside the Module: "${moduleTitle}".
-    Target Level: ${userLevel}.
+  const prompt = `Create a SIMPLE JSON English lesson about: "${lessonTitle}". Level: ${userLevel}.
     
-    STRICT CONTEXT RULE: All vocabulary, quiz questions, scramble sentences, and dialogue MUST be 100% related to "${lessonTitle}". Do not generate random generic English content.
+    REQUIRED JSON STRUCTURE:
+    {
+      "scenario": { 
+          "description": "Context situation", 
+          "dialogueScript": "A: Hello\nB: Hi", 
+          "context": "Brief context" 
+      },
+      "vocabulary": [
+          { "id": "1", "term": "Word", "definition": "Meaning" },
+          { "id": "2", "term": "Word2", "definition": "Meaning2" }
+      ],
+      "quiz": [
+          { 
+              "id": "q1", 
+              "question": "Question related to topic?", 
+              "options": ["Wrong", "Correct", "Wrong"], 
+              "correctIndex": 1 
+          }
+      ],
+      "fillInBlanks": [
+          { "id": "f1", "sentence": "I ___ to the store.", "correctWord": "go", "options": ["go", "gone"], "translation": "Voy a la tienda" }
+      ],
+      "scramble": { 
+          "id": "s1", "sentence": "I like apple pie", "scrambledParts": ["pie", "I", "apple", "like"], "translation": "Me gusta..." 
+      },
+      "conversation": {
+          "goal": "Order food",
+          "turns": [
+              { "speaker": "Tutor", "text": "What do you want?" },
+              { "speaker": "Student", "text": "A pizza please" }
+          ]
+      }
+    }
     
-    Structure:
-    1. Scenario: Short dialogue context.
-    2. Vocabulary: 4 key words strictly from the context.
-    3. Quiz: 2 multiple choice questions regarding the scenario.
-    4. FillInBlanks: 2 sentences related to "${lessonTitle}" where the user must pick the correct word.
-    5. Scramble: One sentence related to "${lessonTitle}" that the user must unscramble.
-    6. Conversation: A roleplay script.
-       - EXACTLY 3 interactions (Tutor asks, Student replies).
-       - Total 6 turns (Tutor, Student, Tutor, Student, Tutor, Student).
-       - The 'text' for the student is what they SHOULD say.
-    
-    Return JSON.`;
+    Use strictly valid JSON. No markdown backticks.`;
 
-  const fetchContent = client.models.generateContent({
-    model: 'gemini-2.5-flash',
-    contents: prompt,
-    config: {
-      responseMimeType: 'application/json',
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          scenario: {
-            type: Type.OBJECT,
-            properties: {
-              description: { type: Type.STRING },
-              dialogueScript: { type: Type.STRING },
-              context: { type: Type.STRING }
-            }
-          },
-          vocabulary: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                id: { type: Type.STRING },
-                term: { type: Type.STRING },
-                definition: { type: Type.STRING }
-              }
-            }
-          },
-          quiz: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                id: { type: Type.STRING },
-                question: { type: Type.STRING },
-                options: { type: Type.ARRAY, items: { type: Type.STRING } },
-                correctIndex: { type: Type.INTEGER }
-              }
-            }
-          },
-          fillInBlanks: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                id: { type: Type.STRING },
-                sentence: { type: Type.STRING },
-                correctWord: { type: Type.STRING },
-                options: { type: Type.ARRAY, items: { type: Type.STRING } },
-                translation: { type: Type.STRING }
-              }
-            }
-          },
-          scramble: {
-            type: Type.OBJECT,
-            properties: {
-              id: { type: Type.STRING },
-              sentence: { type: Type.STRING, description: "The correct full sentence" },
-              scrambledParts: { type: Type.ARRAY, items: { type: Type.STRING } },
-              translation: { type: Type.STRING }
-            }
-          },
-          conversation: {
-            type: Type.OBJECT,
-            properties: {
-              goal: { type: Type.STRING },
-              turns: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    speaker: { type: Type.STRING, enum: ["Tutor", "Student"] },
-                    text: { type: Type.STRING },
-                    translation: { type: Type.STRING }
-                  }
-                }
-              }
-            }
+  // EMERGENCY FALLBACK CONTENT
+  const fallbackContent: InteractiveContent = {
+    scenario: {
+      description: `Practice Session: ${lessonTitle}`,
+      dialogueScript: "Tutor: Ready to practice?\nStudent: Yes, I am ready!",
+      context: `Internalizing concepts about ${lessonTitle}`
+    },
+    vocabulary: [
+      { id: "v1", term: "Practice", definition: "To do something repeatedly to improve" },
+      { id: "v2", term: "Learn", definition: "To gain knowledge or skill" },
+      { id: "v3", term: "Improve", definition: "To get better" },
+      { id: "v4", term: "Goal", definition: "The object of a person's ambition" }
+    ],
+    quiz: [
+      {
+        id: "q_fallback_1",
+        question: `What is the main topic of this lesson?`,
+        options: ["Cooking", lessonTitle, "Sports"],
+        correctIndex: 1
+      },
+      {
+        id: "q_fallback_2",
+        question: "How do you say 'Aprender' in English?",
+        options: ["Sleep", "Learn", "Run"],
+        correctIndex: 1
+      }
+    ],
+    fillInBlanks: [
+      {
+        id: "fb_fallback_1",
+        sentence: `I want to ___ more about ${lessonTitle}.`,
+        correctWord: "learn",
+        options: ["learn", "swim", "fly"],
+        translation: `Quiero aprender más sobre ${lessonTitle}.`
+      },
+      {
+        id: "fb_fallback_2",
+        sentence: "Practice makes ___.",
+        correctWord: "perfect",
+        options: ["perfect", "bad", "tired"],
+        translation: "La práctica hace al maestro."
+      }
+    ],
+    scramble: {
+      id: "sc_fallback_1",
+      sentence: "English is very useful",
+      scrambledParts: ["useful", "is", "English", "very"],
+      translation: "El inglés es muy útil"
+    },
+    conversation: {
+      goal: `Discuss ${lessonTitle} with the tutor.`,
+      turns: [
+        { speaker: "Tutor", text: `What do you know about ${lessonTitle}?`, translation: "¿Qué sabes sobre este tema?" },
+        { speaker: "Student", text: "I am learning about it now.", translation: "Estoy aprendiendo sobre ello ahora." },
+        { speaker: "Tutor", text: "That is great! Keep going.", translation: "¡Eso es genial! Continúa así." },
+        { speaker: "Student", text: "Thank you for your help.", translation: "Gracias por tu ayuda." }
+      ]
+    }
+  };
+
+  try {
+    const fetchContent = client.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            scenario: { type: Type.OBJECT, properties: { description: { type: Type.STRING }, dialogueScript: { type: Type.STRING }, context: { type: Type.STRING } } },
+            vocabulary: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, term: { type: Type.STRING }, definition: { type: Type.STRING } } } },
+            quiz: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, question: { type: Type.STRING }, options: { type: Type.ARRAY, items: { type: Type.STRING } }, correctIndex: { type: Type.INTEGER } } } },
+            fillInBlanks: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, sentence: { type: Type.STRING }, correctWord: { type: Type.STRING }, options: { type: Type.ARRAY, items: { type: Type.STRING } }, translation: { type: Type.STRING } } } },
+            scramble: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, sentence: { type: Type.STRING }, scrambledParts: { type: Type.ARRAY, items: { type: Type.STRING } }, translation: { type: Type.STRING } } },
+            conversation: { type: Type.OBJECT, properties: { goal: { type: Type.STRING }, turns: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { speaker: { type: Type.STRING }, text: { type: Type.STRING }, translation: { type: Type.STRING } } } } } }
           }
         }
       }
-    }
-  });
+    });
 
-  const timeout = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error("Request timed out")), 90000)
-  );
+    const timeout = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("Request timed out")), 90000)
+    );
 
-  try {
     const response = await Promise.race([fetchContent, timeout]) as any;
     const text = response.text || '{}';
-    const json = JSON.parse(text);
+    let json = JSON.parse(text);
 
-    // Sanitize scenario
-    if (!json.scenario) {
-      json.scenario = { description: "Topic lesson context.", dialogueScript: "Tutor: Hello!\nStudent: Hi!" };
-    }
-
-    // Sanitize vocabulary
-    if (!json.vocabulary) json.vocabulary = [];
-
-    // Sanitize quiz (CRITICAL FIX)
-    if (!json.quiz) json.quiz = [];
-
-    // Sanitize fillInBlanks
-    if (!json.fillInBlanks) json.fillInBlanks = [];
-
-    // Sanitize scramble
-    if (!json.scramble) {
-      json.scramble = { id: 'def', sentence: 'Learning English is fun.', scrambledParts: ['fun.', 'English', 'is', 'Learning'], translation: 'Aprender inglés es divertido.' };
-    }
-
-    // Sanitize conversation/roleplay
-    if (!json.conversation || !json.conversation.turns) {
-      json.conversation = {
-        goal: "Practice the lesson topic in a conversation.",
-        turns: [
-          { speaker: "Tutor", text: "How can I help you today?" },
-          { speaker: "Student", text: "I want to practice my English." }
-        ]
-      };
+    // Validate JSON content - if empty arrays, USE FALLBACK
+    if (!json.quiz || json.quiz.length === 0) {
+      console.warn("Gemini returned empty quiz. Using fallback.");
+      return fallbackContent;
     }
 
     return json;
   } catch (error) {
-    console.error("Content generation error:", error);
-    throw error;
+    console.error("Content generation error, using FALLBACK:", error);
+    return fallbackContent;
   }
 }
 

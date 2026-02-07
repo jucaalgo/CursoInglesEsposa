@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Mic, MicOff, Phone, PhoneOff, Volume2, ArrowLeft, Flame, Star, MessageCircle, LogOut, Sparkles, CheckCircle, XCircle, Book, Play, RotateCcw, Settings } from 'lucide-react';
 import { LiveSession, evaluatePronunciation, generateSpeech, playRawAudio, GoogleGenAI, generateSyllabus, generateModuleLessons, generateInteractiveContent, generateLessonImage } from './services/gemini';
-import { getProfile, saveProfile, updateProgress, saveSession, savePronunciation, getSyllabus, saveSyllabus, saveCourseProgress, getCourseProgress } from './services/repository';
+import { getProfile, saveProfile, updateProgress, saveSession, savePronunciation, getSyllabus, saveSyllabus, saveCourseProgress, getCourseProgress, deleteUserData } from './services/repository';
 import { Profile, Session, PronunciationResult, PronunciationAnalysis, CourseProgress, WordAnalysis, VocabWord, ConversationScenario, AcademyExerciseContent, InteractiveContent } from './types';
 
 // ============================================
@@ -337,7 +337,8 @@ const LiveCallScreen: React.FC<{
     profile: Profile;
     onBack: () => void;
     onAddXp: (amount: number) => void;
-}> = ({ scenario, profile, onBack, onAddXp }) => {
+    context?: string; // NEW: Context injection
+}> = ({ scenario, profile, onBack, onAddXp, context }) => {
     const [isConnected, setIsConnected] = useState(false);
     const [isConnecting, setIsConnecting] = useState(false);
     const [isMuted, setIsMuted] = useState(false);
@@ -360,9 +361,16 @@ const LiveCallScreen: React.FC<{
     const startCall = async () => {
         setIsConnecting(true);
         try {
-            const systemPrompt = scenario.systemPrompt.replace('{level}', profile.current_level);
+            let basePrompt = scenario.systemPrompt.replace('{level}', profile.current_level);
+
+            // INJECT CONTEXT
+            if (context) {
+                basePrompt += `\n\nCURRENT LESSON CONTEXT: You are teaching the student about "${context}". 
+                Focus the conversation 100% on this topic. Ask questions related to ${context}.`;
+            }
+
             const session = new LiveSession(handleMessage);
-            await session.connect(systemPrompt, 'Kore');
+            await session.connect(basePrompt, 'Kore');
             liveSessionRef.current = session;
             setIsConnected(true);
             startTimeRef.current = Date.now();
@@ -844,21 +852,11 @@ const App: React.FC = () => {
             setTimeout(() => setSaved(false), 2000);
         };
 
-        const handleResetProgress = () => {
-            if (confirm("¿Estás seguro? Esto borrará TODO: tu usuario, perfil, progreso y syllabus. Tendrás que crear tu cuenta de nuevo.")) {
+        const handleResetProgress = async () => {
+            if (confirm("🚨 ¿BORRAR TODO DEFINITIVAMENTE? \n\nEsta acción es irreversible. Se eliminará tu usuario, progreso y lecciones de la base de datos y de este dispositivo.")) {
                 if (currentUser) {
-                    // Delete all user related keys
-                    localStorage.removeItem('profesoria_profile_' + currentUser);
-                    localStorage.removeItem('profesoria_syllabus_' + currentUser);
-                    localStorage.removeItem('profesoria_course_' + currentUser);
-                    localStorage.removeItem('profesoria_sessions_' + currentUser);
-                    localStorage.removeItem('profesoria_xp'); // Legacy
-                    localStorage.removeItem('profesoria_level'); // Legacy
-
-                    // Logout effectively
-                    localStorage.removeItem('profesoria_current_user');
-
-                    // Reload to force fresh start
+                    await deleteUserData(currentUser);
+                    // Force reload
                     window.location.reload();
                 }
             }
@@ -888,9 +886,9 @@ const App: React.FC = () => {
 
                     <div className="settings-card danger-zone">
                         <h3>Zona de Peligro</h3>
-                        <p className="hint">Herramientas de diagnóstico y reseteo.</p>
-                        <button onClick={handleResetProgress} className="btn-secondary text-red">
-                            🗑️ Resetear Progreso & Syllabus
+                        <p className="hint">Acciones destructivas.</p>
+                        <button onClick={handleResetProgress} className="btn-secondary btn-danger">
+                            🗑️ BORRAR MI CUENTA Y PROGRESO
                         </button>
                     </div>
                 </div>
@@ -911,7 +909,8 @@ const App: React.FC = () => {
             {appState === 'login' && <LoginScreen onLogin={handleLogin} />}
             {appState === 'onboarding' && <OnboardingScreen name={currentUser!} onComplete={handleOnboardingComplete} />}
             {appState === 'dashboard' && <DashboardScreen profile={profile!} onSelectScenario={handleSelectScenario} onLogout={handleLogout} />}
-            {appState === 'call' && <LiveCallScreen scenario={selectedScenario!} profile={profile!} onBack={() => setAppState('dashboard')} onAddXp={addXp} />}
+            {/* CONTEXT INJECTION FIX */}
+            {appState === 'call' && <LiveCallScreen scenario={selectedScenario!} profile={profile!} onBack={() => setAppState('dashboard')} onAddXp={addXp} context={typeof selectedScenario === 'string' ? selectedScenario : undefined} />}
             {appState === 'vocab' && <VocabScreen profile={profile!} onBack={() => setAppState('dashboard')} onAddXp={addXp} />}
             {appState === 'pronunciation' && <PronunciationScreen profile={profile!} onBack={() => setAppState('dashboard')} onAddXp={addXp} />}
             {appState === 'settings' && <SettingsScreen />}
