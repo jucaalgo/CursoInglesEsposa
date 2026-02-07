@@ -967,7 +967,23 @@ const AcademyScreen: React.FC<{
             setSyllabus(newSyllabus);
             await saveSyllabus(profile.username, newSyllabus);
         } catch (e) {
-            console.error(e);
+            console.error("Gemini Syllabus Gen Failed, using fallback:", e);
+            // FALLBACK SYLLABUS: Critical for user experience when AI fails
+            const fallbackSyllabus = [
+                "Unit 1: Introductions & Personal Info",
+                "Unit 2: Daily Routines & Habits",
+                "Unit 3: Ordering Food & Restaurants",
+                "Unit 4: Travel & Directions",
+                "Unit 5: Family & Relationships",
+                "Unit 6: Shopping & Money",
+                "Unit 7: Health & Body",
+                "Unit 8: Work & Professions",
+                "Unit 9: Hobbies & Free Time",
+                "Unit 10: Future Plans & Goals"
+            ];
+            setSyllabus(fallbackSyllabus);
+            await saveSyllabus(profile.username, fallbackSyllabus);
+            onError("La IA tardó demasiado, pero hemos cargado un plan de estudio básico por ahora.");
         } finally {
             setIsLoadingSyllabus(false);
         }
@@ -1327,9 +1343,10 @@ const AcademyScreen: React.FC<{
                             );
                         })}
                     </div>
-                )}
-            </div>
-        </div>
+                )
+                }
+            </div >
+        </div >
     );
 };
 

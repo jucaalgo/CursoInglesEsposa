@@ -64,7 +64,8 @@ export const saveProfile = async (username: string, profile: Partial<Profile>): 
 
         if (error) throw error;
     } catch (error) {
-        console.warn('Supabase saveProfile failed, data saved to localStorage only:', error);
+        // Silent fail for offline mode
+        // console.warn('Supabase saveProfile failed (Offline Mode active)');
     }
 };
 
@@ -281,9 +282,9 @@ export const saveSyllabus = async (username: string, syllabus: string[]): Promis
                 syllabus,
                 last_updated: new Date().toISOString()
             }, { onConflict: 'username' });
-        if (error) throw error;
     } catch (e) {
-        console.warn('Supabase saveSyllabus failed:', e);
+        // Silent fail for offline mode
+        // console.warn('Supabase saveSyllabus failed (Offline Mode)');
     }
 };
 
