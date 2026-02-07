@@ -1328,6 +1328,12 @@ const AcademyScreen: React.FC<{
                                                                 setVoiceResult(null);
                                                                 resetRecording();
                                                                 onAddXp(15);
+
+                                                                // AUTO-SAVE PROGRESS ON STEP COMPLETION
+                                                                if (selectedLesson && !completedLessons.includes(selectedLesson)) {
+                                                                    // Mark as partial/complete in background if needed
+                                                                    // For now, we rely on the final 'Done' step, but let's ensure we save here too if it's the last turn
+                                                                }
                                                             }}>Buen trabajo, ¡siguiente! →</button>
                                                         </div>
                                                     </div>
@@ -1336,7 +1342,22 @@ const AcademyScreen: React.FC<{
                                         )}
                                     </div>
                                 ) : (
-                                    <button className="btn-primary w-full" onClick={() => setLessonStep('done')}>
+                                    <button className="btn-primary w-full" onClick={async () => {
+                                        // FINAL SAVE ON SPEAKING DONE
+                                        const updatedCompleted = [...completedLessons];
+                                        if (selectedLesson && !updatedCompleted.includes(selectedLesson)) {
+                                            updatedCompleted.push(selectedLesson);
+                                            setCompletedLessons(updatedCompleted);
+
+                                            await saveCourseProgress({
+                                                username: profile.username,
+                                                syllabus,
+                                                completed_lessons: updatedCompleted,
+                                                current_module_index: updatedCompleted.length
+                                            });
+                                        }
+                                        setLessonStep('done');
+                                    }}>
                                         Finalizar Lección 🏁
                                     </button>
                                 )}
