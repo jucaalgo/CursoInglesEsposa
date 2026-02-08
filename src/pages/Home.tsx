@@ -51,6 +51,45 @@ const DailyGoalTracker = ({ current, goal }: { current: number, goal: number }) 
     );
 };
 
+const StreakWidget = ({ streak }: { streak: number }) => {
+    const days = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+    const todayIndex = new Date().getDay() - 1; // 0 = Monday
+    const adjTodayIndex = todayIndex < 0 ? 6 : todayIndex;
+
+    return (
+        <Card className="p-6 h-full flex flex-col justify-between border-orange-500/20 bg-gradient-to-br from-gray-900 to-orange-950/10">
+            <div className="flex items-center justify-between mb-4">
+                <div>
+                    <h3 className="text-xl font-bold flex items-center gap-2">
+                        <Flame className="w-6 h-6 text-orange-500 fill-orange-500 animate-pulse" />
+                        {streak} Day Streak
+                    </h3>
+                    <p className="text-sm text-gray-400">Keep the fire burning!</p>
+                </div>
+            </div>
+
+            <div className="flex justify-between items-center gap-2">
+                {days.map((day, i) => {
+                    const isActive = i <= adjTodayIndex && (adjTodayIndex - i) < streak;
+                    return (
+                        <div key={i} className="flex flex-col items-center gap-2">
+                            <div className={`
+                                w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-500
+                                ${isActive
+                                    ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/30 scale-110'
+                                    : 'bg-gray-800 text-gray-600'
+                                }
+                            `}>
+                                {isActive ? <Check className="w-4 h-4" /> : day}
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        </Card>
+    );
+};
+
 const Home: React.FC = () => {
     const { students, activeStudent, isLoading, selectStudent, addStudent } = useStudents();
     const [showAddModal, setShowAddModal] = useState(false);
@@ -157,21 +196,24 @@ const Home: React.FC = () => {
                         <p className="text-gray-500 font-bold uppercase tracking-widest text-xs">Ready for your daily challenge?</p>
                     </header>
 
+
                     {/* Primary Progress & Stats */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         <DailyGoalTracker
                             current={activeStudent.daily_xp || 0}
                             goal={activeStudent.daily_goal || 50}
                         />
 
-                        <Link to="/leaderboard">
+                        <StreakWidget streak={activeStudent.streak_count || 0} />
+
+                        <Link to="/leaderboard" className="hidden lg:block">
                             <Card className="p-6 h-full flex flex-col justify-between hover:border-amber-500/50 transition-all group overflow-hidden relative bg-gradient-to-br from-gray-900 to-amber-950/10 border-amber-500/10">
                                 <div>
                                     <div className="flex items-center justify-between mb-2">
                                         <h3 className="text-xl font-bold">Leaderboard</h3>
                                         <Trophy className="w-5 h-5 text-amber-500" />
                                     </div>
-                                    <p className="text-sm text-gray-400 leading-relaxed">See how you rank against other Profesoria students world-wide.</p>
+                                    <p className="text-sm text-gray-400 leading-relaxed">See how you rank against others.</p>
                                 </div>
                                 <div className="mt-6 flex items-center justify-between text-amber-500 text-sm font-bold uppercase tracking-wider">
                                     View Rankings <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />

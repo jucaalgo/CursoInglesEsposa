@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { useUserProfile } from '../hooks/useUserProfile';
 import Card from '../components/Card';
 import Button from '../components/Button';
-import { Loader2, Trophy, Flame, Target } from 'lucide-react';
+import { Loader2, Trophy, Flame, Target, Star } from 'lucide-react';
+import { BADGES } from '../data/achievements';
 
 const CEFR_LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
 
@@ -205,7 +206,51 @@ const Profile: React.FC = () => {
                     </div>
                 </div>
             </Card>
-        </div>
+
+            {/* Achievements Gallery */}
+            <Card title="Achievements">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                    {BADGES.map((badge) => {
+                        const isUnlocked = (profile?.badges || []).includes(badge.id);
+                        const Icon = badge.icon;
+
+                        return (
+                            <div
+                                key={badge.id}
+                                className={`
+                                     relative group p-4 rounded-2xl border-2 transition-all duration-300
+                                     flex flex-col items-center text-center gap-3
+                                     ${isUnlocked
+                                        ? `bg-${badge.color}-500/10 border-${badge.color}-500/30 hover:shadow-lg hover:shadow-${badge.color}-500/20 hover:-translate-y-1`
+                                        : 'bg-gray-900/50 border-gray-800 grayscale opacity-60 hover:opacity-100 hover:grayscale-0'
+                                    }
+                                 `}
+                            >
+                                <div className={`
+                                     p-3 rounded-full 
+                                     ${isUnlocked ? `bg-${badge.color}-500/20 text-${badge.color}-400` : 'bg-gray-800 text-gray-500'}
+                                 `}>
+                                    <Icon className="w-8 h-8" />
+                                </div>
+                                <div>
+                                    <h4 className={`font-bold text-sm ${isUnlocked ? 'text-white' : 'text-gray-500'}`}>
+                                        {badge.title}
+                                    </h4>
+                                    <p className="text-xs text-gray-500 mt-1 line-clamp-2">
+                                        {badge.description}
+                                    </p>
+                                </div>
+                                {isUnlocked && (
+                                    <div className="absolute top-2 right-2 text-yellow-500 animate-pulse">
+                                        <Star className="w-3 h-3 fill-current" />
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+            </Card >
+        </div >
     );
 };
 
