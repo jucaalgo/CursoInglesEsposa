@@ -402,11 +402,29 @@ export const analyzeStudentResponse = async (
   const client = getClient();
   let parts: any[] = [];
 
+  const strictSystemPrompt = `
+    ROLE: You are a STRICT Cambridge English Examiner.
+    GOAL: Correct EVERY grammar, vocabulary, or pronunciation mistake instantly. Do NOT be polite if it means ignoring an error.
+    
+    INSTRUCTIONS:
+    1. Compare user input to Native Speaker standard (Level ${userLevel}).
+    2. If there is ANY error (even small), your "reply" MUST start with the correction.
+    3. If the input is perfect, simply reply conversationally.
+    
+    OUTPUT JSON FORMAT (Strictly enforce this):
+    {
+      "has_mistake": boolean,
+      "corrected_text": "The full correct sentence",
+      "explanation": "Why it was wrong (concise grammar rule)",
+      "reply": "Your conversational response (or the correction if serious)"
+    }
+  `;
+
   if (audioBase64) {
     parts.push({ inlineData: { mimeType: 'audio/wav', data: audioBase64 } });
-    parts.push({ text: `Analyze audio input for prompt: "${prompt}". Level: ${userLevel}. Return JSON: corrected_text, explanation, reply.` });
+    parts.push({ text: `${strictSystemPrompt}\n\nAUDIO ANALYSIS: Transcribe and analyze audio for prompt: "${prompt}".` });
   } else {
-    parts.push({ text: `Analyze text: "${studentInput}" for prompt: "${prompt}". Level: ${userLevel}. Return JSON: corrected_text, explanation, reply.` });
+    parts.push({ text: `${strictSystemPrompt}\n\nTEXT ANALYSIS: Analyze text: "${studentInput}" for prompt: "${prompt}".` });
   }
 
   try {
@@ -418,6 +436,7 @@ export const analyzeStudentResponse = async (
         responseSchema: {
           type: Type.OBJECT,
           properties: {
+            has_mistake: { type: Type.BOOLEAN },
             corrected_text: { type: Type.STRING },
             explanation: { type: Type.STRING },
             reply: { type: Type.STRING },
@@ -430,19 +449,23 @@ export const analyzeStudentResponse = async (
     const response = await Promise.race([fetchChat, timeout]) as any;
 
     const analysis = JSON.parse(response.text || '{}');
+
+    // Logic: If mistake, Force the UI to show it.
+    let finalReply = analysis.reply;
+
     return {
       id: Date.now().toString(),
       role: 'model',
-      text: analysis.reply || "Great job!",
-      corrections: [{
+      text: finalReply || "Great job!",
+      corrections: analysis.has_mistake ? [{
         original: studentInput || "(Voice Input)",
         correction: analysis.corrected_text || "",
         explanation: `${analysis.explanation || ""}`
-      }]
+      }] : []
     };
   } catch (e) {
     console.error("Analysis error", e);
-    return { id: Date.now().toString(), role: 'model', text: "I understood that. Good job! (Response delayed)", corrections: [] };
+    return { id: Date.now().toString(), role: 'model', text: "I understood that. Good job! (System Note: Correction unavailable)", corrections: [] };
   }
 };
 

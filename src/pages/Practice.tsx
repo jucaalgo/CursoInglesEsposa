@@ -131,26 +131,49 @@ const Practice: React.FC = () => {
                 {messages.map((msg) => (
                     <div
                         key={msg.id}
-                        className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                        className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} mb-6`}
                     >
                         <div
-                            className={`max-w-[80%] rounded-2xl px-4 py-3 ${msg.role === 'user'
-                                ? 'bg-indigo-600 text-white rounded-br-none'
-                                : 'bg-gray-800 text-gray-100 rounded-bl-none'
+                            className={`max-w-[85%] rounded-2xl px-5 py-4 shadow-sm ${msg.role === 'user'
+                                    ? 'bg-indigo-600 text-white rounded-br-none'
+                                    : 'bg-gray-800 text-gray-100 rounded-bl-none border border-gray-700'
                                 }`}
                         >
-                            <p className="whitespace-pre-wrap">{msg.text}</p>
-
-                            {msg.corrections && msg.corrections.length > 0 && (
-                                <div className="mt-3 pt-3 border-t border-white/10 text-sm">
-                                    <div className="flex items-center gap-1 text-green-300 mb-1 font-medium">
-                                        <span>✓ Better way to say it:</span>
-                                    </div>
-                                    <p className="text-green-100 italic">"{msg.corrections[0].correction}"</p>
-                                    <p className="text-gray-400 text-xs mt-1">{msg.corrections[0].explanation}</p>
-                                </div>
-                            )}
+                            <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{msg.text}</p>
                         </div>
+
+                        {/* Correction Card - Prominent & Educational */}
+                        {msg.corrections && msg.corrections.length > 0 && (
+                            <div className="mt-2 max-w-[85%] w-full animate-in fade-in slide-in-from-top-2 duration-300">
+                                <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 relative overflow-hidden">
+                                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-red-500/50" />
+                                    <div className="flex items-start gap-3">
+                                        <div className="p-2 bg-red-500/20 rounded-full shrink-0 mt-0.5">
+                                            <AlertCircle className="w-5 h-5 text-red-400" />
+                                        </div>
+                                        <div className="space-y-2 w-full">
+                                            <div className="flex flex-col">
+                                                <span className="text-xs font-bold text-red-400 uppercase tracking-wider mb-1">Feedback</span>
+                                                <p className="text-gray-300 text-sm">
+                                                    You said: <span className="line-through decoration-red-500/50 text-gray-500">{msg.corrections[0].original}</span>
+                                                </p>
+                                            </div>
+                                            <div className="flex flex-col">
+                                                <span className="text-xs font-bold text-green-400 uppercase tracking-wider mb-1">Better</span>
+                                                <p className="text-green-100 font-medium text-lg">
+                                                    "{msg.corrections[0].correction}"
+                                                </p>
+                                            </div>
+                                            <div className="pt-2 border-t border-red-500/20 mt-1">
+                                                <p className="text-red-200/80 text-xs italic">
+                                                    💡 {msg.corrections[0].explanation}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 ))}
 

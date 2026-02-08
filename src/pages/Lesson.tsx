@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { generateInteractiveContent, generateSpeech, playRawAudio } from '../services/gemini';
+import { generateInteractiveContent, generateSpeech, playRawAudio, evaluatePronunciation } from '../services/gemini';
 import { useUserProfile } from '../hooks/useUserProfile';
 import { useCourse } from '../hooks/useCourse';
-import { InteractiveContent } from '../types';
+import { InteractiveContent, PronunciationAnalysis } from '../types';
 import Button from '../components/Button';
 import Card from '../components/Card';
-import { ArrowLeft, BookOpen, CheckCircle, ChevronRight, Headphones, HelpCircle, MessageSquare, Play, RefreshCw, Volume2 } from 'lucide-react';
+import AudioRecorder from '../components/AudioRecorder';
+import { ArrowLeft, BookOpen, CheckCircle, ChevronRight, Headphones, HelpCircle, MessageSquare, Play, RefreshCw, Volume2, Mic, Award } from 'lucide-react';
 
 const Lesson: React.FC = () => {
     const { topic } = useParams<{ topic: string }>();
@@ -20,6 +21,9 @@ const Lesson: React.FC = () => {
     // Quiz state
     const [quizAnswers, setQuizAnswers] = useState<Record<number, number>>({});
     const [quizSubmitted, setQuizSubmitted] = useState(false);
+    // Pronunciation Practice state
+    const [pronunciationResult, setPronunciationResult] = useState<PronunciationAnalysis | null>(null);
+    const [isEvaluatingPronunciation, setIsEvaluatingPronunciation] = useState(false);
 
     useEffect(() => {
         if (topic && profile) {
@@ -53,6 +57,23 @@ const Lesson: React.FC = () => {
             await playRawAudio(audio);
         } catch (e) {
             console.error(e);
+        }
+    };
+
+    const handlePronunciationTest = async (audioBase64: string) => {
+        if (!content || !profile) return;
+        setIsEvaluatingPronunciation(true);
+        setPronunciationResult(null);
+        try {
+            // Use the first conversation turn as the target phrase
+            const targetPhrase = content.conversation.turns[0]?.text || "Hello, how are you?";
+            const result = await evaluatePronunciation(targetPhrase, audioBase64, profile.current_level);
+            setPronunciationResult(result);
+        } catch (error) {
+            console.error("Pronunciation evaluation failed", error);
+            setPronunciationResult({ phrase: "", score: 0, feedback: "Evaluation failed. Please try again.", words: [] });
+        } finally {
+            setIsEvaluatingPronunciation(false);
         }
     };
 
@@ -216,24 +237,114 @@ const Lesson: React.FC = () => {
                 )}
 
                 {activeTab === 'roleplay' && (
-                    <Card className="p-8 text-center space-y-6">
-                        <div className="w-20 h-20 bg-indigo-500/20 rounded-full flex items-center justify-center mx-auto text-indigo-400">
-                            <Headphones className="w-10 h-10" />
+                    <Card className="p-8 space-y-8">
+                        {/* Header */}
+                        <div className="text-center space-y-4">
+                            <div className="w-20 h-20 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center mx-auto shadow-lg shadow-indigo-500/30">
+                                <Mic className="w-10 h-10 text-white" />
+                            </div>
+                            <h2 className="text-2xl font-bold">Pronunciation Practice</h2>
+                            <p className="text-gray-400 max-w-md mx-auto">
+                                Repeat the phrase below. We'll evaluate your pronunciation and give you detailed feedback.
+                            </p>
                         </div>
-                        <h2 className="text-2xl font-bold">Ready to Practice?</h2>
-                        <p className="text-gray-400 max-w-md mx-auto">
-                            Let's put your new knowledge to the test. Conversation Goal:
-                            <span className="block text-white font-medium mt-2">"{content.conversation.goal}"</span>
-                        </p>
-                        <div className="flex justify-center gap-4 pt-4">
-                            <Button variant="secondary" onClick={() => navigate('/practice')}>
-                                Go to Chat Practice
-                            </Button>
-                            <Button onClick={handleComplete} className="gap-2">
-                                <CheckCircle className="w-5 h-5" />
-                                Mark Lesson Complete
-                            </Button>
+
+                        {/* Target Phrase */}
+                        <div className="bg-gray-900/80 rounded-2xl p-6 border border-gray-700 text-center">
+                            <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Say this phrase:</p>
+                            <p className="text-2xl font-semibold text-white mb-4">
+                                "{content.conversation.turns[0]?.text || 'Hello, how are you?'}"
+                            </p>
+                            <button
+                                onClick={() => playTTS(content.conversation.turns[0]?.text || 'Hello, how are you?')}
+                                className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-500/20 text-indigo-400 rounded-full hover:bg-indigo-500/30 transition-colors"
+                            >
+                                <Volume2 className="w-4 h-4" /> Listen First
+                            </button>
                         </div>
+
+                        {/* Recording Section */}
+                        <div className="flex flex-col items-center gap-4">
+                            <p className="text-sm text-gray-400">Press and hold to record your voice:</p>
+                            <AudioRecorder
+                                onRecordingComplete={handlePronunciationTest}
+                                isProcessing={isEvaluatingPronunciation}
+                            />
+                            {isEvaluatingPronunciation && (
+                                <p className="text-indigo-400 animate-pulse">🎧 Analyzing your pronunciation...</p>
+                            )}
+                        </div>
+
+                        {/* Results Section */}
+                        {pronunciationResult && (
+                            <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-6">
+                                {/* Score Display */}
+                                <div className="flex flex-col items-center gap-4">
+                                    <div className={`w-32 h-32 rounded-full flex items-center justify-center text-4xl font-bold border-4 ${pronunciationResult.score >= 80 ? 'border-green-500 bg-green-500/10 text-green-400' :
+                                            pronunciationResult.score >= 50 ? 'border-yellow-500 bg-yellow-500/10 text-yellow-400' :
+                                                'border-red-500 bg-red-500/10 text-red-400'
+                                        }`}>
+                                        {pronunciationResult.score}%
+                                    </div>
+                                    <div className="text-center">
+                                        <p className={`font-semibold text-lg ${pronunciationResult.score >= 80 ? 'text-green-400' :
+                                                pronunciationResult.score >= 50 ? 'text-yellow-400' :
+                                                    'text-red-400'
+                                            }`}>
+                                            {pronunciationResult.score >= 80 ? '🎉 Excellent!' :
+                                                pronunciationResult.score >= 50 ? '👍 Good effort!' :
+                                                    '💪 Keep practicing!'}
+                                        </p>
+                                        <p className="text-gray-400 text-sm mt-1">{pronunciationResult.feedback}</p>
+                                    </div>
+                                </div>
+
+                                {/* Word-by-word breakdown */}
+                                {pronunciationResult.words && pronunciationResult.words.length > 0 && (
+                                    <div className="bg-gray-900/50 rounded-xl p-4 border border-gray-800">
+                                        <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Word Analysis:</p>
+                                        <div className="flex flex-wrap gap-2 justify-center">
+                                            {pronunciationResult.words.map((word, i) => (
+                                                <span
+                                                    key={i}
+                                                    className={`px-3 py-1.5 rounded-lg font-medium ${word.isCorrect
+                                                            ? 'bg-green-500/20 text-green-300 border border-green-500/30'
+                                                            : 'bg-red-500/20 text-red-300 border border-red-500/30'
+                                                        }`}
+                                                >
+                                                    {word.word}
+                                                    {!word.isCorrect && word.errorType && (
+                                                        <span className="text-xs ml-1 opacity-70">({word.errorType})</span>
+                                                    )}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Try Again / Complete */}
+                                <div className="flex justify-center gap-4 pt-4">
+                                    <Button variant="secondary" onClick={() => setPronunciationResult(null)}>
+                                        <RefreshCw className="w-4 h-4 mr-2" /> Try Again
+                                    </Button>
+                                    <Button onClick={handleComplete} className="gap-2">
+                                        <Award className="w-5 h-5" />
+                                        Complete Lesson
+                                    </Button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Initial Complete Option */}
+                        {!pronunciationResult && !isEvaluatingPronunciation && (
+                            <div className="text-center pt-4 border-t border-gray-800">
+                                <p className="text-gray-500 text-sm mb-4">Or skip pronunciation practice:</p>
+                                <Button variant="ghost" onClick={handleComplete} className="gap-2">
+                                    <CheckCircle className="w-4 h-4" />
+                                    Mark Lesson Complete
+                                </Button>
+                            </div>
+                        )}
                     </Card>
                 )}
             </div>

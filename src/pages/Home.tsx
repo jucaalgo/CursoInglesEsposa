@@ -37,13 +37,20 @@ const Home: React.FC = () => {
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-16 text-left w-full">
                 {features.map((feature, i) => (
-                    <div key={i} className="p-6 rounded-2xl bg-gray-900/50 border border-gray-800 hover:border-indigo-500/30 transition-colors">
-                        <div className="w-10 h-10 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-400 mb-4">
+                    <Link
+                        key={i}
+                        to={feature.route}
+                        className="block p-6 rounded-2xl bg-gray-900/50 border border-gray-800 hover:border-indigo-500/50 hover:bg-gray-800/50 transition-all duration-300 group"
+                    >
+                        <div className="w-10 h-10 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-400 mb-4 group-hover:scale-110 transition-transform">
                             {feature.icon}
                         </div>
-                        <h3 className="text-lg font-semibold mb-2">{feature.title}</h3>
+                        <h3 className="text-lg font-semibold mb-2 group-hover:text-indigo-400 transition-colors">{feature.title}</h3>
                         <p className="text-sm text-gray-400 leading-relaxed">{feature.desc}</p>
-                    </div>
+                        <span className="inline-block mt-3 text-xs text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                            Explore →
+                        </span>
+                    </Link>
                 ))}
             </div>
         </div>
@@ -54,18 +61,22 @@ const features = [
     {
         title: "Real Conversations",
         desc: "Practice speaking with an AI that understands context, nuance, and corrects your pronunciation in real-time.",
-        icon: <span className="text-xl">💬</span>
+        icon: <span className="text-xl">💬</span>,
+        route: "/practice"
     },
     {
         title: "Personalized Curriculum",
         desc: "Lessons adapt to your proficiency level and interests, ensuring you learn what matters most to you.",
-        icon: <span className="text-xl">📚</span>
+        icon: <span className="text-xl">📚</span>,
+        route: "/academy"
     },
     {
         title: "Instant Feedback",
         desc: "Get immediate corrections on grammar and vocabulary to improve faster than traditional methods.",
-        icon: <span className="text-xl">⚡</span>
+        icon: <span className="text-xl">⚡</span>,
+        route: "/practice"
     }
 ];
 
 export default Home;
+

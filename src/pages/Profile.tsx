@@ -4,16 +4,22 @@ import Card from '../components/Card';
 import Button from '../components/Button';
 import { Loader2, Trophy, Flame, Target } from 'lucide-react';
 
+const CEFR_LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+
 const Profile: React.FC = () => {
     const { profile, loading, error, updateProfile } = useUserProfile();
     const [isEditing, setIsEditing] = useState(false);
     const [name, setName] = useState('');
     const [interests, setInterests] = useState('');
+    const [currentLevel, setCurrentLevel] = useState('A1');
+    const [targetLevel, setTargetLevel] = useState('B2');
 
     useEffect(() => {
         if (profile) {
             setName(profile.name);
             setInterests((profile.interests || []).join(', '));
+            setCurrentLevel(profile.current_level || 'A1');
+            setTargetLevel(profile.target_level || 'B2');
         }
     }, [profile]);
 
@@ -38,6 +44,8 @@ const Profile: React.FC = () => {
             await updateProfile({
                 ...profile,
                 name,
+                current_level: currentLevel,
+                target_level: targetLevel,
                 interests: interests.split(',').map(i => i.trim()).filter(i => i.length > 0)
             });
             setIsEditing(false);
@@ -151,12 +159,48 @@ const Profile: React.FC = () => {
                         )}
                     </div>
 
-                    <div>
-                        <label className="block text-sm font-medium text-gray-400 mb-1">
-                            Target Level
-                        </label>
-                        <div className="inline-flex items-center px-3 py-1 rounded-full bg-indigo-900/50 text-indigo-300 text-sm border border-indigo-500/30">
-                            {profile?.target_level || 'B2'}
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-400 mb-1">
+                                Current Level
+                            </label>
+                            <p className="text-xs text-gray-500 mb-2">Your current English proficiency.</p>
+                            {isEditing ? (
+                                <select
+                                    value={currentLevel}
+                                    onChange={(e) => setCurrentLevel(e.target.value)}
+                                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                >
+                                    {CEFR_LEVELS.map(level => (
+                                        <option key={level} value={level}>{level}</option>
+                                    ))}
+                                </select>
+                            ) : (
+                                <div className="inline-flex items-center px-3 py-1 rounded-full bg-emerald-900/50 text-emerald-300 text-sm border border-emerald-500/30 font-semibold">
+                                    {profile?.current_level || 'A1'}
+                                </div>
+                            )}
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-400 mb-1">
+                                Target Level
+                            </label>
+                            <p className="text-xs text-gray-500 mb-2">What you're working towards.</p>
+                            {isEditing ? (
+                                <select
+                                    value={targetLevel}
+                                    onChange={(e) => setTargetLevel(e.target.value)}
+                                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                >
+                                    {CEFR_LEVELS.map(level => (
+                                        <option key={level} value={level}>{level}</option>
+                                    ))}
+                                </select>
+                            ) : (
+                                <div className="inline-flex items-center px-3 py-1 rounded-full bg-indigo-900/50 text-indigo-300 text-sm border border-indigo-500/30 font-semibold">
+                                    {profile?.target_level || 'B2'}
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>
