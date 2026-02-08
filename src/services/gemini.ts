@@ -113,7 +113,7 @@ export const generateSyllabus = async (profile: UserProfile): Promise<string[]> 
   const client = getClient();
   const prompt = `
       Act as a Lead Curriculum Designer.
-      Student Profile: Level ${profile.current_level} -> ${profile.target_level}. Interests: ${profile.interests.join(', ')}.
+      Student Profile: Level ${profile.current_level} -> ${profile.target_level}. Interests: ${(profile.interests || []).join(', ')}.
       
       Create a comprehensive list of exactly 50 FOCUS AREAS (Broad Topics) for their learning journey.
       Examples: "Airport Survival", "Business Email Etiquette", "Past Tense Mastery", "Ordering Food".

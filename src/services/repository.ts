@@ -17,7 +17,7 @@ export const getProfile = async (username: string): Promise<Profile | null> => {
     try {
         const { data, error } = await supabase
             .from('profesoria_profiles')
-            .select('*')
+            .select('username, name, current_level, target_level, xp_total, streak_count, interests, last_practice_at')
             .eq('username', username);
 
         if (error) throw error;
