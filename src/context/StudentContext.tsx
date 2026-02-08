@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { Profile } from '../types';
-import { getAllProfiles, getProfile, saveProfile } from '../services/repository';
+import { getAllProfiles, getProfile, saveProfile, deleteUserData } from '../services/repository';
 
 interface StudentContextType {
     students: Profile[];
@@ -8,6 +8,7 @@ interface StudentContextType {
     isLoading: boolean;
     selectStudent: (username: string) => void;
     addStudent: (name: string) => Promise<void>;
+    deleteStudent: (username: string) => Promise<void>;
     refreshStudents: () => Promise<void>;
 }
 
@@ -70,6 +71,16 @@ export const StudentProvider: React.FC<{ children: ReactNode }> = ({ children })
         selectStudent(username);
     };
 
+    const deleteStudent = async (username: string) => {
+        await deleteUserData(username);
+        // If the deleted student was active, clear selection
+        if (activeStudent?.username === username) {
+            setActiveStudent(null);
+            localStorage.removeItem('profesoria_active_student');
+        }
+        await loadStudents();
+    };
+
     const refreshStudents = async () => {
         await loadStudents();
     };
@@ -81,6 +92,7 @@ export const StudentProvider: React.FC<{ children: ReactNode }> = ({ children })
             isLoading,
             selectStudent,
             addStudent,
+            deleteStudent,
             refreshStudents
         }}>
             {children}

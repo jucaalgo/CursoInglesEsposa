@@ -105,8 +105,9 @@ const StreakWidget = ({ streak, history }: { streak: number, history?: Record<st
 };
 
 const Home: React.FC = () => {
-    const { students, activeStudent, isLoading, selectStudent, addStudent } = useStudents();
+    const { students, activeStudent, isLoading, selectStudent, addStudent, deleteStudent } = useStudents();
     const [showAddModal, setShowAddModal] = useState(false);
+    const [studentToDelete, setStudentToDelete] = useState<string | null>(null);
     const [newStudentName, setNewStudentName] = useState('');
     const [isAdding, setIsAdding] = useState(false);
 

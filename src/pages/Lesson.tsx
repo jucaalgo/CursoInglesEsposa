@@ -8,6 +8,7 @@ import { InteractiveContent, PronunciationAnalysis } from '../types';
 import Button from '../components/Button';
 import Card from '../components/Card';
 import AudioRecorder from '../components/AudioRecorder';
+import PronunciationHeatmap from '../components/PronunciationHeatmap';
 import confetti from 'canvas-confetti';
 import { ArrowLeft, BookOpen, CheckCircle, ChevronRight, Headphones, HelpCircle, RefreshCw, Volume2, Mic, Award, Shuffle, PenLine, Link2, Loader2, Check, X } from 'lucide-react';
 import { playCorrectSound, playWrongSound, playClickSound } from '../utils/sounds';
@@ -31,6 +32,7 @@ const Lesson: React.FC = () => {
     const [fillBlankAnswers, setFillBlankAnswers] = useState<Record<string, string>>({});
     const [fillBlankSubmitted, setFillBlankSubmitted] = useState(false);
     const [scrambleOrder, setScrambleOrder] = useState<{ id: string, text: string, selected: boolean }[]>([]);
+    const [scrambleAnswerIds, setScrambleAnswerIds] = useState<string[]>([]); // NEW: Track click order
     const [scrambleSubmitted, setScrambleSubmitted] = useState(false);
     const [matchingSelected, setMatchingSelected] = useState<{ left: string | null; right: string | null }>({ left: null, right: null });
     const [matchingPairs, setMatchingPairs] = useState<Record<string, string>>({});
@@ -59,6 +61,7 @@ const Lesson: React.FC = () => {
             const data = await generateInteractiveContent(topic, profile.current_level);
             setContent(data);
             if (data.scramble) {
+                setScrambleAnswerIds([]); // Reset order
                 setScrambleOrder(data.scramble.scrambledParts.map((text, i) => ({
                     id: `w-${i}-${Math.random().toString(36).substr(2, 5)}`,
                     text,
@@ -438,21 +441,26 @@ const Lesson: React.FC = () => {
                     <div className="space-y-6">
                         <h2 className="text-xl font-bold">Unscramble</h2>
                         <div className="bg-gray-900 border border-gray-800 p-8 rounded-3xl space-y-8">
-                            <div className="min-h-[100px] flex flex-wrap gap-3 p-4 bg-gray-950 rounded-2xl border-2 border-dashed border-gray-800 items-center justify-center">
-                                {scrambleOrder.filter(w => w.selected).map((w) => (
-                                    <button
-                                        key={w.id}
-                                        onClick={() => {
-                                            playClickSound();
-                                            setScrambleOrder(prev => prev.map(item => item.id === w.id ? { ...item, selected: false } : item));
-                                            setScrambleSubmitted(false);
-                                        }}
-                                        className="px-5 py-2.5 bg-indigo-600 text-white rounded-2xl font-bold shadow-lg animate-in zoom-in-50"
-                                    >
-                                        {w.text}
-                                    </button>
-                                ))}
-                                {scrambleOrder.filter(w => w.selected).length === 0 && <span className="text-gray-600 italic font-medium">Tap words below to build the sentence...</span>}
+                            <div className="min-h-[100px] flex flex-wrap gap-3 p-6 bg-gray-950 rounded-2xl border-2 border-dashed border-gray-800 items-center justify-center min-w-full">
+                                {scrambleAnswerIds.map((id) => {
+                                    const w = scrambleOrder.find(item => item.id === id);
+                                    if (!w) return null;
+                                    return (
+                                        <button
+                                            key={w.id}
+                                            onClick={() => {
+                                                playClickSound();
+                                                setScrambleAnswerIds(prev => prev.filter(pid => pid !== w.id));
+                                                setScrambleOrder(prev => prev.map(item => item.id === w.id ? { ...item, selected: false } : item));
+                                                setScrambleSubmitted(false);
+                                            }}
+                                            className="px-5 py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/20 animate-in zoom-in-50"
+                                        >
+                                            {w.text}
+                                        </button>
+                                    );
+                                })}
+                                {scrambleAnswerIds.length === 0 && <span className="text-gray-600 italic font-medium">Tap words below to build the sentence...</span>}
                             </div>
 
                             <div className="flex flex-wrap gap-3 justify-center">
@@ -461,6 +469,7 @@ const Lesson: React.FC = () => {
                                         key={w.id}
                                         onClick={() => {
                                             playClickSound();
+                                            setScrambleAnswerIds(prev => [...prev, w.id]);
                                             setScrambleOrder(prev => prev.map(item => item.id === w.id ? { ...item, selected: true } : item));
                                         }}
                                         className="px-6 py-3 bg-gray-800 border border-gray-700 text-gray-300 rounded-2xl font-bold hover:bg-gray-700 transition-all active:scale-[0.85]"
@@ -472,13 +481,14 @@ const Lesson: React.FC = () => {
                         </div>
 
                         <div className="flex gap-4">
-                            <Button variant="ghost" onClick={() => { playClickSound(); setScrambleOrder(prev => prev.map(w => ({ ...w, selected: false }))); setScrambleSubmitted(false); }} className="h-14 px-6 rounded-2xl">
+                            <Button variant="ghost" onClick={() => { playClickSound(); setScrambleOrder(prev => prev.map(w => ({ ...w, selected: false }))); setScrambleAnswerIds([]); setScrambleSubmitted(false); }} className="h-14 px-6 rounded-2xl">
                                 <RefreshCw className="w-5 h-5 mr-2" /> Reset
                             </Button>
                             <Button
                                 disabled={scrambleOrder.filter(w => w.selected).length === 0}
                                 onClick={() => {
-                                    const sentence = scrambleOrder.filter(w => w.selected).map(w => w.text).join(' ');
+                                    // Construct sentence based on CLICK ORDER
+                                    const sentence = scrambleAnswerIds.map(id => scrambleOrder.find(w => w.id === id)?.text).join(' ');
                                     if (sentence.toLowerCase() === content.scramble.sentence.toLowerCase()) {
                                         awardXP(20);
                                         setScrambleSubmitted(true);
