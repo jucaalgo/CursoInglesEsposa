@@ -17,7 +17,7 @@ export const getProfile = async (username: string): Promise<Profile | null> => {
     try {
         const { data, error } = await supabase
             .from('profesoria_profiles')
-            .select('username, name, current_level, target_level, xp_total, streak_count, interests, last_practice_at, daily_xp, daily_goal, badges')
+            .select('*')
             .eq('username', username);
 
         if (error) throw error;
@@ -44,7 +44,7 @@ export const getAllProfiles = async (): Promise<Profile[]> => {
     try {
         const { data, error } = await supabase
             .from('profesoria_profiles')
-            .select('username, name, current_level, target_level, xp_total, streak_count, interests, last_practice_at, daily_xp, daily_goal, badges')
+            .select('*')
             .order('name', { ascending: true });
 
         if (error) throw error;

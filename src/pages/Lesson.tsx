@@ -30,7 +30,7 @@ const Lesson: React.FC = () => {
     const [quizSubmitted, setQuizSubmitted] = useState(false);
     const [fillBlankAnswers, setFillBlankAnswers] = useState<Record<string, string>>({});
     const [fillBlankSubmitted, setFillBlankSubmitted] = useState(false);
-    const [scrambleOrder, setScrambleOrder] = useState<string[]>([]);
+    const [scrambleOrder, setScrambleOrder] = useState<{ id: string, text: string, selected: boolean }[]>([]);
     const [scrambleSubmitted, setScrambleSubmitted] = useState(false);
     const [matchingSelected, setMatchingSelected] = useState<{ left: string | null; right: string | null }>({ left: null, right: null });
     const [matchingPairs, setMatchingPairs] = useState<Record<string, string>>({});
@@ -58,7 +58,13 @@ const Lesson: React.FC = () => {
         try {
             const data = await generateInteractiveContent(topic, profile.current_level);
             setContent(data);
-            if (data.scramble) setScrambleOrder([...data.scramble.scrambledParts]);
+            if (data.scramble) {
+                setScrambleOrder(data.scramble.scrambledParts.map((text, i) => ({
+                    id: `w-${i}-${Math.random().toString(36).substr(2, 5)}`,
+                    text,
+                    selected: false
+                })));
+            }
             if (data.wordMatching) {
                 setMatchingLeft([...data.wordMatching.pairs.map(p => p.word)].sort(() => Math.random() - 0.5));
                 setMatchingRight([...data.wordMatching.pairs.map(p => p.match)].sort(() => Math.random() - 0.5));
@@ -410,8 +416,9 @@ const Lesson: React.FC = () => {
                             onClick={() => {
                                 if (!fillBlankSubmitted) {
                                     const correct = Object.entries(fillBlankAnswers).every(([k, v]) => {
-                                        const q = content.fillInBlanks.find((_, i) => (q?.id || i).toString() === k) || content.fillInBlanks[parseInt(k)];
-                                        return v === q?.correctWord;
+                                        const index = parseInt(k);
+                                        const question = content.fillInBlanks[index];
+                                        return question ? v === question.correctWord : false;
                                     });
                                     if (correct) awardXP(15); else playWrongSound();
                                     setFillBlankSubmitted(true);
@@ -432,43 +439,46 @@ const Lesson: React.FC = () => {
                         <h2 className="text-xl font-bold">Unscramble</h2>
                         <div className="bg-gray-900 border border-gray-800 p-8 rounded-3xl space-y-8">
                             <div className="min-h-[100px] flex flex-wrap gap-3 p-4 bg-gray-950 rounded-2xl border-2 border-dashed border-gray-800 items-center justify-center">
-                                {scrambleOrder.filter(w => w.startsWith('S_')).map((w, i) => (
+                                {scrambleOrder.filter(w => w.selected).map((w) => (
                                     <button
-                                        key={i}
+                                        key={w.id}
                                         onClick={() => {
                                             playClickSound();
-                                            setScrambleOrder(prev => prev.map(word => word === w ? w.replace('S_', '') : word));
+                                            setScrambleOrder(prev => prev.map(item => item.id === w.id ? { ...item, selected: false } : item));
                                             setScrambleSubmitted(false);
                                         }}
                                         className="px-5 py-2.5 bg-indigo-600 text-white rounded-2xl font-bold shadow-lg animate-in zoom-in-50"
                                     >
-                                        {w.replace('S_', '')}
+                                        {w.text}
                                     </button>
                                 ))}
-                                {scrambleOrder.filter(w => w.startsWith('S_')).length === 0 && <span className="text-gray-600 italic font-medium">Tap words below to build the sentence...</span>}
+                                {scrambleOrder.filter(w => w.selected).length === 0 && <span className="text-gray-600 italic font-medium">Tap words below to build the sentence...</span>}
                             </div>
 
                             <div className="flex flex-wrap gap-3 justify-center">
-                                {scrambleOrder.filter(w => !w.startsWith('S_')).map((word, i) => (
+                                {scrambleOrder.filter(w => !w.selected).map((w) => (
                                     <button
-                                        key={i}
-                                        onClick={() => { playClickSound(); setScrambleOrder(prev => prev.map((w, idx) => (idx === i && w === word) ? `S_${w}` : w)); }}
+                                        key={w.id}
+                                        onClick={() => {
+                                            playClickSound();
+                                            setScrambleOrder(prev => prev.map(item => item.id === w.id ? { ...item, selected: true } : item));
+                                        }}
                                         className="px-6 py-3 bg-gray-800 border border-gray-700 text-gray-300 rounded-2xl font-bold hover:bg-gray-700 transition-all active:scale-[0.85]"
                                     >
-                                        {word}
+                                        {w.text}
                                     </button>
                                 ))}
                             </div>
                         </div>
 
                         <div className="flex gap-4">
-                            <Button variant="ghost" onClick={() => { playClickSound(); setScrambleOrder(content.scramble.scrambledParts); setScrambleSubmitted(false); }} className="h-14 px-6 rounded-2xl">
+                            <Button variant="ghost" onClick={() => { playClickSound(); setScrambleOrder(prev => prev.map(w => ({ ...w, selected: false }))); setScrambleSubmitted(false); }} className="h-14 px-6 rounded-2xl">
                                 <RefreshCw className="w-5 h-5 mr-2" /> Reset
                             </Button>
                             <Button
-                                disabled={scrambleOrder.filter(w => w.startsWith('S_')).length === 0}
+                                disabled={scrambleOrder.filter(w => w.selected).length === 0}
                                 onClick={() => {
-                                    const sentence = scrambleOrder.filter(w => w.startsWith('S_')).map(w => w.replace('S_', '')).join(' ');
+                                    const sentence = scrambleOrder.filter(w => w.selected).map(w => w.text).join(' ');
                                     if (sentence.toLowerCase() === content.scramble.sentence.toLowerCase()) {
                                         awardXP(20);
                                         setScrambleSubmitted(true);
