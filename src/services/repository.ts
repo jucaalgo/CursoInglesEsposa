@@ -38,6 +38,33 @@ export const getProfile = async (username: string): Promise<Profile | null> => {
 };
 
 /**
+ * Get ALL profiles from Supabase (for student selector)
+ */
+export const getAllProfiles = async (): Promise<Profile[]> => {
+    try {
+        const { data, error } = await supabase
+            .from('profesoria_profiles')
+            .select('username, name, current_level, target_level, xp_total, streak_count, interests, last_practice_at')
+            .order('name', { ascending: true });
+
+        if (error) throw error;
+
+        return data || [];
+    } catch (error) {
+        console.warn('Supabase getAllProfiles failed, using localStorage:', error);
+        // Fallback: return profiles from localStorage
+        const allKeys = Object.keys(localStorage).filter(k => k.startsWith('profesoria_profile_'));
+        return allKeys.map(key => {
+            try {
+                return JSON.parse(localStorage.getItem(key) || '{}');
+            } catch {
+                return null;
+            }
+        }).filter(Boolean) as Profile[];
+    }
+};
+
+/**
  * Save user profile to Supabase
  * Also saves to localStorage as backup
  */

@@ -51,6 +51,20 @@ export interface FillInBlankExercise {
     translation?: string;
 }
 
+// NEW: Word Matching Exercise
+export interface WordMatchExercise {
+    id?: string;
+    pairs: { word: string; match: string }[];
+}
+
+// NEW: Listening Exercise
+export interface ListeningExercise {
+    id?: string;
+    phrase: string;      // What to listen to
+    answer: string;      // Expected typed answer
+    hint?: string;       // Optional hint
+}
+
 export interface ConversationTurn {
     speaker: string;
     text: string;
@@ -67,6 +81,8 @@ export interface InteractiveContent {
     scramble: ScrambleExercise;
     fillInBlanks: FillInBlankExercise[];
     quiz: QuizQuestion[];
+    wordMatching?: WordMatchExercise;     // NEW
+    listening?: ListeningExercise[];      // NEW
     conversation: {
         turns: ConversationTurn[];
         goal: string;

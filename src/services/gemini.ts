@@ -194,27 +194,39 @@ export const generateInteractiveContent = async (lessonTitle: string, userLevel:
     {
       "scenario": { 
           "description": "Context situation", 
-          "dialogueScript": "A: Hello\nB: Hi", 
+          "dialogueScript": "A: Hello\\nB: Hi", 
           "context": "Brief context" 
       },
       "vocabulary": [
           { "id": "1", "term": "Word", "definition": "Meaning" },
-          { "id": "2", "term": "Word2", "definition": "Meaning2" }
+          { "id": "2", "term": "Word2", "definition": "Meaning2" },
+          { "id": "3", "term": "Word3", "definition": "Meaning3" },
+          { "id": "4", "term": "Word4", "definition": "Meaning4" }
       ],
       "quiz": [
-          { 
-              "id": "q1", 
-              "question": "Question related to topic?", 
-              "options": ["Wrong", "Correct", "Wrong"], 
-              "correctIndex": 1 
-          }
+          { "id": "q1", "question": "Question 1?", "options": ["Wrong", "Correct", "Wrong"], "correctIndex": 1 },
+          { "id": "q2", "question": "Question 2?", "options": ["Correct", "Wrong", "Wrong"], "correctIndex": 0 }
       ],
       "fillInBlanks": [
-          { "id": "f1", "sentence": "I ___ to the store.", "correctWord": "go", "options": ["go", "gone"], "translation": "Voy a la tienda" }
+          { "id": "f1", "sentence": "I ___ to the store.", "correctWord": "go", "options": ["go", "gone", "went"], "translation": "Voy a la tienda" },
+          { "id": "f2", "sentence": "She ___ very happy.", "correctWord": "is", "options": ["is", "are", "be"], "translation": "Ella está muy feliz" }
       ],
       "scramble": { 
           "id": "s1", "sentence": "I like apple pie", "scrambledParts": ["pie", "I", "apple", "like"], "translation": "Me gusta..." 
       },
+      "wordMatching": {
+          "id": "wm1",
+          "pairs": [
+              { "word": "Hello", "match": "Hola" },
+              { "word": "Goodbye", "match": "Adiós" },
+              { "word": "Please", "match": "Por favor" },
+              { "word": "Thank you", "match": "Gracias" }
+          ]
+      },
+      "listening": [
+          { "id": "l1", "phrase": "Nice to meet you", "answer": "Nice to meet you", "hint": "A greeting" },
+          { "id": "l2", "phrase": "How are you doing?", "answer": "How are you doing?", "hint": "Asking about well-being" }
+      ],
       "conversation": {
           "goal": "Order food",
           "turns": [
@@ -275,6 +287,19 @@ export const generateInteractiveContent = async (lessonTitle: string, userLevel:
       scrambledParts: ["useful", "is", "English", "very"],
       translation: "El inglés es muy útil"
     },
+    wordMatching: {
+      id: "wm_fallback_1",
+      pairs: [
+        { word: "Practice", match: "Practicar" },
+        { word: "Learn", match: "Aprender" },
+        { word: "Improve", match: "Mejorar" },
+        { word: "Goal", match: "Meta" }
+      ]
+    },
+    listening: [
+      { id: "l_fallback_1", phrase: "I want to learn English", answer: "I want to learn English", hint: "About learning" },
+      { id: "l_fallback_2", phrase: "Practice makes perfect", answer: "Practice makes perfect", hint: "A proverb" }
+    ],
     conversation: {
       goal: `Discuss ${lessonTitle} with the tutor.`,
       turns: [
