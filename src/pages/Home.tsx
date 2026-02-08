@@ -51,10 +51,20 @@ const DailyGoalTracker = ({ current, goal }: { current: number, goal: number }) 
     );
 };
 
-const StreakWidget = ({ streak }: { streak: number }) => {
+const StreakWidget = ({ streak, history }: { streak: number, history?: Record<string, number> }) => {
     const days = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-    const todayIndex = new Date().getDay() - 1; // 0 = Monday
-    const adjTodayIndex = todayIndex < 0 ? 6 : todayIndex;
+    const today = new Date();
+
+    // Generate last 7 days dates
+    const last7Days = Array.from({ length: 7 }, (_, i) => {
+        const d = new Date();
+        d.setDate(today.getDate() - (6 - i));
+        return {
+            dayName: days[d.getDay() === 0 ? 6 : d.getDay() - 1],
+            dateStr: d.toISOString().split('T')[0],
+            isToday: i === 6
+        };
+    });
 
     return (
         <Card className="p-6 h-full flex flex-col justify-between border-orange-500/20 bg-gradient-to-br from-gray-900 to-orange-950/10">
@@ -69,8 +79,11 @@ const StreakWidget = ({ streak }: { streak: number }) => {
             </div>
 
             <div className="flex justify-between items-center gap-2">
-                {days.map((day, i) => {
-                    const isActive = i <= adjTodayIndex && (adjTodayIndex - i) < streak;
+                {last7Days.map((dayObj, i) => {
+                    // Check if XP was earned on this date
+                    const xpEarned = history?.[dayObj.dateStr] || 0;
+                    const isActive = xpEarned > 0;
+
                     return (
                         <div key={i} className="flex flex-col items-center gap-2">
                             <div className={`
@@ -79,8 +92,9 @@ const StreakWidget = ({ streak }: { streak: number }) => {
                                     ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/30 scale-110'
                                     : 'bg-gray-800 text-gray-600'
                                 }
+                                ${dayObj.isToday ? 'border-2 border-white/20' : ''}
                             `}>
-                                {isActive ? <Check className="w-4 h-4" /> : day}
+                                {isActive ? <Check className="w-4 h-4" /> : dayObj.dayName}
                             </div>
                         </div>
                     );
@@ -204,7 +218,10 @@ const Home: React.FC = () => {
                             goal={activeStudent.daily_goal || 50}
                         />
 
-                        <StreakWidget streak={activeStudent.streak_count || 0} />
+                        <StreakWidget
+                            streak={activeStudent.streak_count || 0}
+                            history={activeStudent.history}
+                        />
 
                         <Link to="/leaderboard" className="hidden lg:block">
                             <Card className="p-6 h-full flex flex-col justify-between hover:border-amber-500/50 transition-all group overflow-hidden relative bg-gradient-to-br from-gray-900 to-amber-950/10 border-amber-500/10">

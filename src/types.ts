@@ -20,6 +20,7 @@ export interface UserProfile {
     daily_xp?: number;
     daily_goal?: number;
     badges?: string[];
+    history?: Record<string, number>; // "YYYY-MM-DD": XP
 }
 export type Profile = UserProfile;
 
