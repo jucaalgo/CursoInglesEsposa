@@ -652,6 +652,12 @@ const Lesson: React.FC = () => {
                                     <span className="text-[10px] uppercase font-bold tracking-widest opacity-60">Accuracy</span>
                                 </div>
                                 <p className="max-w-sm mx-auto text-gray-300 font-medium leading-relaxed italic">"{pronunciationResult.feedback}"</p>
+
+                                {/* NEW: Visual Heatmap */}
+                                <PronunciationHeatmap
+                                    words={pronunciationResult.word_analysis || []}
+                                    score={pronunciationResult.score}
+                                />
                             </div>
                         )}
 
