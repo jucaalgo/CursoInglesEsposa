@@ -17,7 +17,7 @@ export const getProfile = async (username: string): Promise<Profile | null> => {
     try {
         const { data, error } = await supabase
             .from('profesoria_profiles')
-            .select('username, name, current_level, target_level, xp_total, streak_count, interests, last_practice_at')
+            .select('username, name, current_level, target_level, xp_total, streak_count, interests, last_practice_at, daily_xp, daily_goal, badges')
             .eq('username', username);
 
         if (error) throw error;
@@ -44,7 +44,7 @@ export const getAllProfiles = async (): Promise<Profile[]> => {
     try {
         const { data, error } = await supabase
             .from('profesoria_profiles')
-            .select('username, name, current_level, target_level, xp_total, streak_count, interests, last_practice_at')
+            .select('username, name, current_level, target_level, xp_total, streak_count, interests, last_practice_at, daily_xp, daily_goal, badges')
             .order('name', { ascending: true });
 
         if (error) throw error;
@@ -77,7 +77,10 @@ export const saveProfile = async (username: string, profile: Partial<Profile>): 
         interests: profile.interests || [],
         xp_total: profile.xp_total || 0,
         streak_count: profile.streak_count || 0,
-        last_practice_at: profile.last_practice_at
+        last_practice_at: profile.last_practice_at,
+        daily_xp: profile.daily_xp || 0,
+        daily_goal: profile.daily_goal || 50,
+        badges: profile.badges || []
     };
 
     // Save to localStorage first (always succeeds)
@@ -113,9 +116,18 @@ export const updateProgress = async (username: string, xpEarned: number): Promis
         newStreak = lastPractice === yesterday ? newStreak + 1 : 1;
     }
 
+    let newDailyXP = profile.daily_xp || 0;
+    if (lastPractice !== today) {
+        // New day reset
+        newDailyXP = xpEarned;
+    } else {
+        newDailyXP += xpEarned;
+    }
+
     await saveProfile(username, {
         ...profile,
         xp_total: profile.xp_total + xpEarned,
+        daily_xp: newDailyXP,
         streak_count: newStreak,
         last_practice_at: new Date().toISOString()
     });

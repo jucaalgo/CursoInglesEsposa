@@ -325,6 +325,8 @@ export const generateInteractiveContent = async (lessonTitle: string, userLevel:
             quiz: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, question: { type: Type.STRING }, options: { type: Type.ARRAY, items: { type: Type.STRING } }, correctIndex: { type: Type.INTEGER } } } },
             fillInBlanks: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, sentence: { type: Type.STRING }, correctWord: { type: Type.STRING }, options: { type: Type.ARRAY, items: { type: Type.STRING } }, translation: { type: Type.STRING } } } },
             scramble: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, sentence: { type: Type.STRING }, scrambledParts: { type: Type.ARRAY, items: { type: Type.STRING } }, translation: { type: Type.STRING } } },
+            wordMatching: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, pairs: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { word: { type: Type.STRING }, match: { type: Type.STRING } } } } } },
+            listening: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, phrase: { type: Type.STRING }, answer: { type: Type.STRING }, hint: { type: Type.STRING } } } },
             conversation: { type: Type.OBJECT, properties: { goal: { type: Type.STRING }, turns: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { speaker: { type: Type.STRING }, text: { type: Type.STRING }, translation: { type: Type.STRING } } } } } }
           }
         }
@@ -491,6 +493,35 @@ export const analyzeStudentResponse = async (
   } catch (e) {
     console.error("Analysis error", e);
     return { id: Date.now().toString(), role: 'model', text: "I understood that. Good job! (System Note: Correction unavailable)", corrections: [] };
+  }
+};
+
+export const explainGrammar = async (text: string, userLevel: string): Promise<string> => {
+  const client = getClient();
+  const prompt = `
+    ROLE: You are an expert English Professor specializing in Linguistics and the CEFR framework.
+    TASK: Provide a comprehensive, professional, yet easy-to-understand breakdown of the grammar and structure of the following text:
+    TEXT: "${text}"
+    STUDENT LEVEL: ${userLevel}
+
+    YOUR RESPONSE SHOULD INCLUDE:
+    1. **Sentence Structure**: Identify the type of sentence and its main components (Subject, Verb, Object).
+    2. **Parts of Speech**: Briefly explain key words and their roles.
+    3. **Tense and Mood**: Identify the tense used and why.
+    4. **Advanced Tips**: If applicable for Level ${userLevel}, suggest a more natural way to phrase it.
+
+    FORMAT: Use Markdown with bold headers. Keep it educational.
+  `;
+
+  try {
+    const response = await client.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+    });
+    return response.text || "I'm sorry, I couldn't generate an explanation right now.";
+  } catch (e) {
+    console.error("Grammar explanation error", e);
+    return "Failed to analyze grammar. Please check your connection.";
   }
 };
 

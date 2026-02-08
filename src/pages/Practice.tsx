@@ -1,14 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, AlertCircle, Loader2 } from 'lucide-react';
+import { BookOpen, X, Send, AlertCircle, Loader2, Sparkles } from 'lucide-react';
 import Button from '../components/Button';
 import Card from '../components/Card';
-import AudioRecorder from '../components/AudioRecorder'; // Import new component
-import SettingsModal from '../components/Layout'; // Indirectly importing via Layout... wait, no. 
-// Actually I need to fix the import in Layout or just check storage. The Modal is in Layout.
-
-import { analyzeStudentResponse, generateSpeech, playRawAudio } from '../services/gemini'; // Added TTS imports
+import AudioRecorder from '../components/AudioRecorder';
+import { analyzeStudentResponse, generateSpeech, playRawAudio, explainGrammar } from '../services/gemini';
 import { useUserProfile } from '../hooks/useUserProfile';
 import { ChatMessage } from '../types';
+import ReactMarkdown from 'react-markdown';
 
 // Helper icon
 const SettingsIcon = () => (
@@ -24,6 +22,8 @@ const Practice: React.FC = () => {
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [apiKeyMissing, setApiKeyMissing] = useState(false);
+    const [explanation, setExplanation] = useState<string | null>(null);
+    const [isExplaining, setIsExplaining] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -134,12 +134,30 @@ const Practice: React.FC = () => {
                         className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} mb-6`}
                     >
                         <div
-                            className={`max-w-[85%] rounded-2xl px-5 py-4 shadow-sm ${msg.role === 'user'
-                                    ? 'bg-indigo-600 text-white rounded-br-none'
-                                    : 'bg-gray-800 text-gray-100 rounded-bl-none border border-gray-700'
+                            className={`max-w-[85%] rounded-2xl px-5 py-4 shadow-sm relative group ${msg.role === 'user'
+                                ? 'bg-indigo-600 text-white rounded-br-none'
+                                : 'bg-gray-800 text-gray-100 rounded-bl-none border border-gray-700'
                                 }`}
                         >
                             <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{msg.text}</p>
+
+                            {/* Grammar Lab Trigger */}
+                            <button
+                                onClick={async () => {
+                                    setIsExplaining(true);
+                                    const result = await explainGrammar(msg.text, profile?.current_level || 'A2');
+                                    setExplanation(result);
+                                    setIsExplaining(false);
+                                }}
+                                className={`
+                                    absolute -bottom-3 ${msg.role === 'user' ? '-left-8' : '-right-8'} 
+                                    p-2 rounded-full bg-gray-900 border border-gray-700 text-indigo-400 
+                                    opacity-0 group-hover:opacity-100 transition-opacity shadow-lg hover:scale-110 active:scale-95
+                                `}
+                                title="Grammar Lab"
+                            >
+                                <Sparkles className="w-4 h-4" />
+                            </button>
                         </div>
 
                         {/* Correction Card - Prominent & Educational */}
@@ -215,6 +233,45 @@ const Practice: React.FC = () => {
                     </Button>
                 </div>
             </Card>
+
+            {/* Grammar Lab Modal */}
+            {(isExplaining || explanation) && (
+                <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                    <Card className="w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-300 rounded-3xl border-indigo-500/30">
+                        <div className="p-6 border-b border-gray-800 flex items-center justify-between bg-indigo-500/5">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2 bg-indigo-500/20 rounded-xl">
+                                    <Sparkles className="w-6 h-6 text-indigo-400" />
+                                </div>
+                                <div>
+                                    <h3 className="text-xl font-black italic tracking-tight">GRAMMAR LAB</h3>
+                                    <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">AI Linguistic Analysis</p>
+                                </div>
+                            </div>
+                            <Button variant="ghost" size="sm" onClick={() => { setExplanation(null); setIsExplaining(false); }}>
+                                <X className="w-6 h-6" />
+                            </Button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-8 custom-scrollbar bg-gray-950/50">
+                            {isExplaining ? (
+                                <div className="flex flex-col items-center justify-center py-20 space-y-4">
+                                    <Loader2 className="w-10 h-10 text-indigo-500 animate-spin" />
+                                    <p className="text-gray-400 font-bold animate-pulse">Analyzing structures...</p>
+                                </div>
+                            ) : (
+                                <div className="prose prose-invert max-w-none">
+                                    <ReactMarkdown>{explanation || ''}</ReactMarkdown>
+                                </div>
+                            )}
+                        </div>
+                        <div className="p-4 bg-gray-900/50 border-t border-gray-800">
+                            <Button onClick={() => { setExplanation(null); setIsExplaining(false); }} className="w-full h-12 rounded-xl">
+                                Got it, thanks!
+                            </Button>
+                        </div>
+                    </Card>
+                </div>
+            )}
         </div>
     );
 };

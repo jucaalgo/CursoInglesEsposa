@@ -17,6 +17,9 @@ export interface UserProfile {
     streak_count: number;
     last_practice_at?: string;
     interests: string[];
+    daily_xp?: number;
+    daily_goal?: number;
+    badges?: string[];
 }
 export type Profile = UserProfile;
 

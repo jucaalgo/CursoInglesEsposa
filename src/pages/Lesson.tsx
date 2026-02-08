@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { generateInteractiveContent, generateSpeech, playRawAudio, evaluatePronunciation } from '../services/gemini';
+import { updateProgress } from '../services/repository';
 import { useUserProfile } from '../hooks/useUserProfile';
 import { useCourse } from '../hooks/useCourse';
 import { InteractiveContent, PronunciationAnalysis } from '../types';
@@ -8,7 +9,7 @@ import Button from '../components/Button';
 import Card from '../components/Card';
 import AudioRecorder from '../components/AudioRecorder';
 import confetti from 'canvas-confetti';
-import { ArrowLeft, BookOpen, CheckCircle, ChevronRight, Headphones, HelpCircle, RefreshCw, Volume2, Mic, Award, Shuffle, PenLine, Link2, Loader2 } from 'lucide-react';
+import { ArrowLeft, BookOpen, CheckCircle, ChevronRight, Headphones, HelpCircle, RefreshCw, Volume2, Mic, Award, Shuffle, PenLine, Link2, Loader2, Check, X } from 'lucide-react';
 import { playCorrectSound, playWrongSound, playClickSound } from '../utils/sounds';
 
 // Tab types
@@ -64,10 +65,26 @@ const Lesson: React.FC = () => {
     };
 
     const handleComplete = async () => {
-        if (topic) {
+        if (topic && profile) {
             playClickSound();
             await markLessonComplete(topic);
-            confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
+
+            // Check if goal reached for extra celebration
+            const currentDaily = (profile.daily_xp || 0) + xpEarned;
+            const goal = profile.daily_goal || 50;
+
+            if (currentDaily >= goal && (profile.daily_xp || 0) < goal) {
+                // First time hitting goal today!
+                confetti({
+                    particleCount: 200,
+                    spread: 100,
+                    origin: { y: 0.5 },
+                    colors: ['#6366f1', '#a855f7', '#ec4899', '#fbbf24']
+                });
+            } else {
+                confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
+            }
+
             navigate('/academy');
         }
     };
@@ -80,10 +97,19 @@ const Lesson: React.FC = () => {
         } catch (e) { console.error(e); }
     };
 
-    const awardXP = (points: number) => {
+    const awardXP = async (points: number) => {
+        if (!profile) return;
         playCorrectSound();
         setXpEarned(prev => prev + points);
         setShowXpAnimation(true);
+
+        // Sync with database/localStorage
+        try {
+            await updateProgress(profile.username, points);
+        } catch (e) {
+            console.error("Failed to sync XP", e);
+        }
+
         confetti({ particleCount: 30, spread: 50, origin: { y: 0.7 } });
         setTimeout(() => setShowXpAnimation(false), 1500);
     };

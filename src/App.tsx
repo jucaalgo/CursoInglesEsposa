@@ -6,6 +6,7 @@ import Practice from './pages/Practice';
 import Academy from './pages/Academy';
 import Lesson from './pages/Lesson';
 import Profile from './pages/Profile';
+import Leaderboard from './pages/Leaderboard';
 import Layout from './components/Layout';
 import './index.css';
 
@@ -20,6 +21,7 @@ const App: React.FC = () => {
                         <Route path="/academy" element={<Academy />} />
                         <Route path="/academy/lesson/:topic" element={<Lesson />} />
                         <Route path="/profile" element={<Profile />} />
+                        <Route path="/leaderboard" element={<Leaderboard />} />
                     </Routes>
                 </Layout>
             </Router>
