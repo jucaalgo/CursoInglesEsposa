@@ -34,6 +34,8 @@ const Lesson: React.FC = () => {
     const [scrambleSubmitted, setScrambleSubmitted] = useState(false);
     const [matchingSelected, setMatchingSelected] = useState<{ left: string | null; right: string | null }>({ left: null, right: null });
     const [matchingPairs, setMatchingPairs] = useState<Record<string, string>>({});
+    const [matchingLeft, setMatchingLeft] = useState<string[]>([]);
+    const [matchingRight, setMatchingRight] = useState<string[]>([]);
 
     const [listeningAnswers, setListeningAnswers] = useState<Record<string, string>>({});
     const [listeningSubmitted, setListeningSubmitted] = useState(false);
@@ -57,6 +59,10 @@ const Lesson: React.FC = () => {
             const data = await generateInteractiveContent(topic, profile.current_level);
             setContent(data);
             if (data.scramble) setScrambleOrder([...data.scramble.scrambledParts]);
+            if (data.wordMatching) {
+                setMatchingLeft([...data.wordMatching.pairs.map(p => p.word)].sort(() => Math.random() - 0.5));
+                setMatchingRight([...data.wordMatching.pairs.map(p => p.match)].sort(() => Math.random() - 0.5));
+            }
         } catch (error) {
             console.error("Failed to load lesson", error);
         } finally {
@@ -287,40 +293,40 @@ const Lesson: React.FC = () => {
 
                         <div className="grid grid-cols-2 gap-6">
                             <div className="space-y-3">
-                                {content.wordMatching.pairs.map((pair) => (
+                                {matchingLeft.map((word) => (
                                     <button
-                                        key={pair.word}
-                                        disabled={!!matchingPairs[pair.word]}
+                                        key={word}
+                                        disabled={!!matchingPairs[word]}
                                         onClick={() => {
                                             playClickSound();
-                                            setMatchingSelected({ ...matchingSelected, left: matchingSelected.left === pair.word ? null : pair.word });
+                                            setMatchingSelected({ ...matchingSelected, left: matchingSelected.left === word ? null : word });
                                         }}
                                         className={`
-                                            w-full p-4 rounded-2xl text-center font-bold transition-all shadow-sm
-                                            ${matchingPairs[pair.word]
-                                                ? 'bg-green-500/20 text-green-400 border border-green-500/30 opacity-50'
-                                                : matchingSelected.left === pair.word
-                                                    ? 'bg-indigo-600 text-white scale-105 border-indigo-400'
-                                                    : 'bg-gray-900 text-gray-300 border border-gray-800 hover:border-indigo-500/50'
+                                            w-full p-4 rounded-2xl text-center font-bold transition-all shadow-sm border-2
+                                            ${matchingPairs[word]
+                                                ? 'bg-green-500/20 text-green-400 border-green-500/30 opacity-50'
+                                                : matchingSelected.left === word
+                                                    ? 'bg-indigo-600 text-white scale-105 border-indigo-400 shadow-xl shadow-indigo-600/20'
+                                                    : 'bg-gray-900 text-gray-300 border-gray-800 hover:border-indigo-500/50'
                                             }
                                         `}
                                     >
-                                        {pair.word}
+                                        {word}
                                     </button>
                                 ))}
                             </div>
 
                             <div className="space-y-3">
-                                {content.wordMatching.pairs.map((pair) => (
+                                {matchingRight.map((match) => (
                                     <button
-                                        key={pair.match}
-                                        disabled={Object.values(matchingPairs).includes(pair.match)}
+                                        key={match}
+                                        disabled={Object.values(matchingPairs).includes(match)}
                                         onClick={() => {
                                             playClickSound();
                                             if (matchingSelected.left) {
-                                                const correct = content.wordMatching?.pairs.find(p => p.word === matchingSelected.left)?.match === pair.match;
+                                                const correct = content.wordMatching?.pairs.find(p => p.word === matchingSelected.left)?.match === match;
                                                 if (correct) {
-                                                    setMatchingPairs(prev => ({ ...prev, [matchingSelected.left!]: pair.match }));
+                                                    setMatchingPairs(prev => ({ ...prev, [matchingSelected.left!]: match }));
                                                     awardXP(10);
                                                 } else {
                                                     playWrongSound();
@@ -329,14 +335,14 @@ const Lesson: React.FC = () => {
                                             }
                                         }}
                                         className={`
-                                            w-full p-4 rounded-2xl text-center font-bold transition-all
-                                            ${Object.values(matchingPairs).includes(pair.match)
-                                                ? 'bg-green-500/20 text-green-400 border border-green-500/30 opacity-50'
-                                                : 'bg-gray-900 text-gray-300 border border-gray-800'
+                                            w-full p-4 rounded-2xl text-center font-bold transition-all border-2
+                                            ${Object.values(matchingPairs).includes(match)
+                                                ? 'bg-green-500/20 text-green-400 border-green-500/30 opacity-50'
+                                                : 'bg-gray-900 text-gray-300 border-gray-800 hover:border-indigo-500/50'
                                             }
                                         `}
                                     >
-                                        {pair.match}
+                                        {match}
                                     </button>
                                 ))}
                             </div>
