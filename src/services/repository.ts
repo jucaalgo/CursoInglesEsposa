@@ -93,7 +93,7 @@ export const saveProfile = async (username: string, profile: Partial<Profile>): 
             .upsert(fullProfile, { onConflict: 'username' });
 
         if (error) throw error;
-    } catch (error) {
+    } catch (_error) {
         // Silent fail for offline mode
         // console.warn('Supabase saveProfile failed (Offline Mode active)');
     }
@@ -249,8 +249,8 @@ const PRONUNCIATION_PREFIX = 'profesoria_pronunciation_';
 const safeSetItem = (key: string, value: string) => {
     try {
         localStorage.setItem(key, value);
-    } catch (e: any) {
-        console.warn('LocalStorage Quota Exceeded or Error:', e);
+    } catch (_e: unknown) {
+        console.warn('LocalStorage Quota Exceeded or Error:', _e);
         // Optional: clear old sessions if quota exceeded?
         // For now, we just swallow the error to keep the app running.
     }
@@ -259,7 +259,7 @@ const safeSetItem = (key: string, value: string) => {
 const safeGetItem = (key: string): string | null => {
     try {
         return localStorage.getItem(key);
-    } catch (e) {
+    } catch (_e) {
         return null;
     }
 };
@@ -314,14 +314,14 @@ export const saveSyllabus = async (username: string, syllabus: string[]): Promis
 
     // 2. Cloud
     try {
-        const { error } = await supabase
+        const { error: _error } = await supabase
             .from('profesoria_course_progress')
             .upsert({
                 username,
                 syllabus,
                 last_updated: new Date().toISOString()
             }, { onConflict: 'username' });
-    } catch (e) {
+    } catch (_e) {
         // Silent fail for offline mode
         // console.warn('Supabase saveSyllabus failed (Offline Mode)');
     }
@@ -341,7 +341,7 @@ export const getSyllabus = async (username: string): Promise<string[] | null> =>
             safeSetItem(SYLLABUS_PREFIX + username, JSON.stringify(data.syllabus));
             return data.syllabus;
         }
-    } catch (e) {
+    } catch (_e) {
         // Fallback
     }
 
@@ -391,7 +391,7 @@ export const getCourseProgress = async (username: string): Promise<CourseProgres
             safeSetItem('profesoria_course_' + username, JSON.stringify(courseProgress));
             return courseProgress;
         }
-    } catch (e) {
+    } catch (_e) {
         // Fallback
     }
 
@@ -408,9 +408,7 @@ export const getCourseProgress = async (username: string): Promise<CourseProgres
  * Check if Supabase is configured
  */
 export const isSupabaseConfigured = (): boolean => {
-    // @ts-ignore
     const url = import.meta.env?.VITE_SUPABASE_URL;
-    // @ts-ignore
     const key = import.meta.env?.VITE_SUPABASE_ANON_KEY;
     return !!(url && key);
 };

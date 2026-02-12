@@ -3,6 +3,7 @@ import { getClient } from "./client";
 import { decode, decodeAudioData, encode } from "./audio";
 
 export class LiveSession {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     private sessionPromise: Promise<any> | null = null;
     private inputContext: AudioContext;
     private outputContext: AudioContext;
@@ -14,8 +15,8 @@ export class LiveSession {
 
     constructor(onMessage: (text: string | null, isInterrupted: boolean) => void) {
         this.onMessageCallback = onMessage;
-        this.inputContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
-        this.outputContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+        this.inputContext = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)({ sampleRate: 16000 });
+        this.outputContext = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)({ sampleRate: 24000 });
     }
 
     async connect(systemInstruction: string, voiceName: string = 'Puck') {
@@ -44,7 +45,7 @@ export class LiveSession {
                     }
                 },
                 onclose: () => { },
-                onerror: (err: any) => console.error("Live Session Error", err)
+                onerror: (err: unknown) => console.error("Live Session Error", err)
             },
             config: {
                 responseModalities: [Modality.AUDIO],
@@ -103,9 +104,8 @@ export class LiveSession {
         if (this.sessionPromise) {
             try {
                 const session = await this.sessionPromise;
-                // @ts-ignore
                 session.close();
-            } catch (e) { }
+            } catch (_e) { }
         }
         await this.inputContext.close();
         await this.outputContext.close();

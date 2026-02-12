@@ -25,7 +25,7 @@ export const generateSpeech = async (text: string, voiceName: string = 'Kore'): 
         const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
         if (!base64Audio) throw new Error("No audio generated from model");
         return base64Audio;
-    } catch (e: any) {
+    } catch (e: unknown) {
         console.error("TTS generation failed:", e);
         // Specific handling for "prompt not supported" which usually means safety filter triggered on text or invalid chars
         if (e.message?.includes("prompt is not supported by the AudioOut model")) {

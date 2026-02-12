@@ -5,7 +5,7 @@ export const getClient = () => {
     const customKey = localStorage.getItem('profesoria_api_key');
 
     // Safe access to process.env for browser environments where it might not be polyfilled
-    // @ts-ignore
+    // Safe access to process.env for browser environments where it might not be polyfilled
     const envKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY || (typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : undefined);
     const apiKey = customKey || envKey;
 

@@ -1,12 +1,31 @@
 /// <reference types="vite/client" />
-/// <reference types="vite-plugin-pwa/client" />
 
-interface ImportMetaEnv {
-    readonly VITE_SUPABASE_URL: string
-    readonly VITE_SUPABASE_ANON_KEY: string
-    readonly GEMINI_API_KEY: string
-}
+declare module 'canvas-confetti' {
+    interface Options {
+        particleCount?: number;
+        angle?: number;
+        spread?: number;
+        startVelocity?: number;
+        decay?: number;
+        gravity?: number;
+        drift?: number;
+        ticks?: number;
+        origin?: {
+            x?: number;
+            y?: number;
+        };
+        colors?: string[];
+        shapes?: string[];
+        scalar?: number;
+        zIndex?: number;
+        disableForReducedMotion?: boolean;
+    }
 
-interface ImportMeta {
-    readonly env: ImportMetaEnv
+    type ConfettiFunction = (options?: Options) => Promise<null> | null;
+
+    const confetti: ConfettiFunction & {
+        reset: () => void;
+    };
+
+    export default confetti;
 }

@@ -1,12 +1,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { AlertCircle, Check, Mic } from 'lucide-react';
-
-interface WordAnalysis {
-    word: string;
-    isCorrect: boolean;
-    errorType?: 'mispronounced' | 'skipped' | 'tone';
-}
+import { WordAnalysis } from '../types';
 
 interface PronunciationHeatmapProps {
     words: WordAnalysis[];

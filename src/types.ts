@@ -137,7 +137,7 @@ export interface Session {
     duration_seconds: number;
     xp_earned: number;
     score: number;
-    details?: any; // JSON
+    details?: Record<string, unknown>; // JSON
     created_at?: string;
 }
 
@@ -152,14 +152,30 @@ export interface ChatMessage {
     }[];
 }
 
+
+export interface WordAnalysis {
+    word: string;
+    isCorrect: boolean;
+    errorType?: 'mispronounced' | 'skipped' | 'tone';
+}
+
 export interface PronunciationResult {
     id?: string;
     username: string;
     phrase: string;
     score: number;
     feedback: string;
-    word_analysis?: any; // JSON
+    word_analysis?: Record<string, unknown>; // JSON
     improvementTips?: string[];
     created_at?: string;
 }
-export type PronunciationAnalysis = Omit<PronunciationResult, 'username' | 'id' | 'created_at'> & { words?: any[] };
+export type PronunciationAnalysis = Omit<PronunciationResult, 'username' | 'id' | 'created_at'> & { words?: WordAnalysis[] };
+
+export type ExerciseType = 'pronunciation' | 'quiz' | 'fill_blank' | 'scramble' | 'listening' | 'intro';
+
+export type ExerciseContent = QuizQuestion | FillInBlankExercise | ScrambleExercise | ListeningExercise | InteractiveContent['scenario'] | InteractiveContent['conversation'];
+
+export interface Exercise {
+    type: ExerciseType;
+    content: ExerciseContent;
+}

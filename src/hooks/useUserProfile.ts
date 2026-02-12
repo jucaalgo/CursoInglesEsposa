@@ -1,17 +1,49 @@
-import { useState } from 'react';
-import { useStudents } from '../context/StudentContext';
-import { saveProfile } from '../services/repository';
+import { useState, useEffect } from 'react';
+import { useAuth } from '../context/AuthContext';
+import { getProfile, saveProfile } from '../services/repository';
 import { Profile } from '../types';
 
 export function useUserProfile() {
-    const { activeStudent, isLoading, refreshStudents } = useStudents();
+    const { user } = useAuth();
+    const [profile, setProfile] = useState<Profile | null>(null);
+    const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    const updateProfile = async (newProfile: Profile) => {
+    const loadProfile = async () => {
+        if (!user) {
+            setProfile(null);
+            setLoading(false);
+            return;
+        }
+
         try {
-            if (!newProfile.username) throw new Error('Username missing in profile');
-            await saveProfile(newProfile.username, newProfile);
-            await refreshStudents();
+            setLoading(true);
+            const data = await getProfile(user.id);
+            if (data) {
+                setProfile(data);
+            } else {
+                // Should not happen if signup creates it, but handle fallback?
+                // For now, return null
+            }
+        } catch (err) {
+            console.error(err);
+            setError('Failed to load profile');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        loadProfile();
+    }, [user]);
+
+    const updateProfile = async (newProfile: Profile) => {
+        if (!user) return;
+        try {
+            // Ensure we update the profile for the current user
+            const profileToSave = { ...newProfile, username: user.id };
+            await saveProfile(user.id, profileToSave);
+            setProfile(profileToSave);
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to save profile');
             throw err;
@@ -19,10 +51,11 @@ export function useUserProfile() {
     };
 
     return {
-        profile: activeStudent,
-        loading: isLoading,
-        error: error,
+        profile,
+        loading,
+        error,
         updateProfile,
-        refresh: refreshStudents
+        refresh: loadProfile
     };
 }
+

@@ -14,7 +14,7 @@ export { generateSpeech } from "./ai/tts";
 export { LiveSession } from "./ai/live";
 
 // Note: generateLessonImage stub removed as it was disabled.
-export const generateLessonImage = async (promptText: string, aspectRatio: string = '16:9'): Promise<string | null> => {
+export const generateLessonImage = async (promptText: string, _aspectRatio: string = '16:9'): Promise<string | null> => {
   // TEMPORARILY DISABLED: Image generation quota exhausted
   console.log("Image generation disabled (quota exhausted)");
   return null;

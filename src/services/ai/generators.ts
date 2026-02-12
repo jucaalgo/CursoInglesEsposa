@@ -28,22 +28,33 @@ export const generateSyllabus = async (profile: UserProfile): Promise<string[]> 
         });
 
         const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Syllabus generation timed out")), 60000));
-        const response = await Promise.race([fetchSyllabus, timeout]) as any;
+        const response = await Promise.race([fetchSyllabus, timeout]) as { text?: () => string };
 
-        return JSON.parse(response.text || '[]');
-    } catch (e) {
-        console.error("Syllabus gen error", e);
+        return JSON.parse(response.text ? response.text() : '[]');
+    } catch (_e) {
+        console.error("Syllabus gen error", _e);
         return Array.from({ length: 50 }, (_, i) => `Focus Area ${i + 1}: English Topic`);
     }
 };
 
-export const generateModuleLessons = async (moduleTitle: string, userLevel: string): Promise<string[]> => {
+// Helper function for cleaning JSON, assuming it's defined elsewhere or will be added.
+// For now, it will just parse the JSON.
+const cleanJson = (text: string) => {
+    try {
+        return JSON.parse(text);
+    } catch (e) {
+        console.error("Error parsing JSON:", e);
+        return []; // Return an empty array or handle error as appropriate
+    }
+};
+
+export const generateModuleLessons = async (topic: string, level: string, numLessons: number, _moduleTitle: string): Promise<string[]> => {
     const client = getClient();
     const prompt = `
-      For the English Focus Area: "${moduleTitle}" (Level ${userLevel}).
-      Generate exactly 10 distinct, sequential STEPS (Lesson Titles) to master this area.
+      For the English Focus Area: "${topic}" (Level ${level}).
+      Generate exactly ${numLessons} distinct, sequential STEPS (Lesson Titles) to master this area.
       They should form a clear roadmap.
-      Return ONLY a JSON array of 10 strings.
+      Return ONLY a JSON array of ${numLessons} strings.
     `;
 
     try {
@@ -60,11 +71,11 @@ export const generateModuleLessons = async (moduleTitle: string, userLevel: stri
         });
 
         const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Lesson generation timed out")), 45000));
-        const response = await Promise.race([fetchLessons, timeout]) as any;
+        const response = await Promise.race([fetchLessons, timeout]) as { text?: () => string };
 
-        return JSON.parse(response.text || '[]');
-    } catch (e) {
-        return Array.from({ length: 10 }, (_, i) => `${moduleTitle} - Step ${i + 1}`);
+        return JSON.parse(response.text ? response.text() : '[]');
+    } catch (_e) {
+        return Array.from({ length: 10 }, (_, i) => `${_moduleTitle} - Step ${i + 1}`);
     }
 };
 
@@ -227,8 +238,8 @@ export const generateInteractiveContent = async (lessonTitle: string, userLevel:
             setTimeout(() => reject(new Error("Request timed out")), 90000)
         );
 
-        const response = await Promise.race([fetchContent, timeout]) as any;
-        const text = response.text || '{}';
+        const response = await Promise.race([fetchContent, timeout]) as { text?: () => string };
+        const text = response.text ? response.text() : '{}';
         let json = JSON.parse(text);
 
         // Validate JSON content - if empty arrays, USE FALLBACK

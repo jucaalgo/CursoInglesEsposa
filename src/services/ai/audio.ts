@@ -55,7 +55,7 @@ let playbackContext: AudioContext | null = null;
 export const playRawAudio = async (base64Str: string) => {
     if (!base64Str) return;
     if (!playbackContext) {
-        playbackContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+        playbackContext = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)({ sampleRate: 24000 });
     }
 
     // Resume context if suspended (browser autoplay policy)

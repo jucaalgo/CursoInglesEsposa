@@ -1,13 +1,32 @@
 import React from 'react';
-import { useStudents } from '../context/StudentContext';
+import { useUserProfile } from '../hooks/useUserProfile';
 import Card from '../components/Card';
 import { Trophy, Medal, Star, ArrowLeft, Crown } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import Button from '../components/Button';
 
 const Leaderboard: React.FC = () => {
-    const { students, activeStudent } = useStudents();
+    const { profile: activeStudent } = useUserProfile();
     const navigate = useNavigate();
+    const [students, setStudents] = React.useState<any[]>([]);
+    const [loading, setLoading] = React.useState(true);
+
+    React.useEffect(() => {
+        const loadLeaderboard = async () => {
+            try {
+                // Import dynamically to avoid circular dependencies if any, 
+                // or just import at top if clean. Repository is safe.
+                const { getAllProfiles } = await import('../services/repository');
+                const data = await getAllProfiles();
+                setStudents(data);
+            } catch (e) {
+                console.error("Failed to load leaderboard", e);
+            } finally {
+                setLoading(false);
+            }
+        };
+        loadLeaderboard();
+    }, []);
 
     // Sort students by XP descending
     const sortedStudents = [...students].sort((a, b) => (b.xp_total || 0) - (a.xp_total || 0));

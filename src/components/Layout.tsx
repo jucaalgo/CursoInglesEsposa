@@ -16,27 +16,26 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     );
 };
 
-const Navbar = () => {
+const NavItem = ({ to, icon: Icon, label }: { to: string; icon: React.ElementType; label: string }) => {
     const location = useLocation();
+    const isActive = location.pathname === to;
+    return (
+        <Link
+            to={to}
+            className={cn(
+                "flex flex-col items-center justify-center gap-1 px-3 py-1 rounded-xl transition-all duration-300 w-full md:w-auto",
+                isActive
+                    ? "text-indigo-400 font-semibold bg-indigo-500/10"
+                    : "text-gray-400 hover:text-white"
+            )}
+        >
+            <Icon className={cn("w-6 h-6 md:w-5 md:h-5", isActive && "stroke-[2.5px]")} />
+            <span className="text-[10px] md:text-xs font-medium uppercase tracking-wider">{label}</span>
+        </Link>
+    );
+};
 
-    const NavItem = ({ to, icon: Icon, label }: { to: string; icon: any; label: string }) => {
-        const isActive = location.pathname === to;
-        return (
-            <Link
-                to={to}
-                className={cn(
-                    "flex flex-col items-center justify-center gap-1 px-3 py-1 rounded-xl transition-all duration-300 w-full md:w-auto",
-                    isActive
-                        ? "text-indigo-400 font-semibold bg-indigo-500/10"
-                        : "text-gray-400 hover:text-white"
-                )}
-            >
-                <Icon className={cn("w-6 h-6 md:w-5 md:h-5", isActive && "stroke-[2.5px]")} />
-                <span className="text-[10px] md:text-xs font-medium uppercase tracking-wider">{label}</span>
-            </Link>
-        );
-    };
-
+const Navbar = () => {
     const [showSettings, setShowSettings] = React.useState(false);
 
     return (

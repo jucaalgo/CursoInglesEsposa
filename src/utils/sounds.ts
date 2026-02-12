@@ -1,4 +1,4 @@
-const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+const audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
 
 export const playCorrectSound = () => {
     const oscillator = audioCtx.createOscillator();

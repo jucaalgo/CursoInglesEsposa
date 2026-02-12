@@ -56,9 +56,9 @@ export const evaluatePronunciation = async (
         });
 
         const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Pronunciation analysis timed out")), 30000));
-        const response = await Promise.race([fetchEval, timeout]) as any;
+        const response = await Promise.race([fetchEval, timeout]) as { text?: () => string };
 
-        const result = JSON.parse(response.text || '{"score": 0, "feedback": "Could not analyze", "words": []}');
+        const result = JSON.parse(response.text ? response.text() : '{"score": 0, "feedback": "Could not analyze", "words": []}');
         return { ...result, phrase: targetPhrase };
     } catch (e) {
         console.error("Pronunciation eval error", e);
@@ -73,7 +73,7 @@ export const analyzeStudentResponse = async (
     audioBase64?: string
 ): Promise<ChatMessage> => {
     const client = getClient();
-    let parts: any[] = [];
+    const parts: { inlineData?: { mimeType: string; data: string }; text?: string }[] = [];
 
     const strictSystemPrompt = `
     ROLE: You are a STRICT Cambridge English Examiner.
@@ -119,12 +119,12 @@ export const analyzeStudentResponse = async (
         });
 
         const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Chat analysis timed out")), 20000));
-        const response = await Promise.race([fetchChat, timeout]) as any;
+        const response = await Promise.race([fetchChat, timeout]) as { text?: () => string };
 
-        const analysis = JSON.parse(response.text || '{}');
+        const analysis = JSON.parse(response.text ? response.text() : '{}');
 
         // Logic: If mistake, Force the UI to show it.
-        let finalReply = analysis.reply;
+        const finalReply = analysis.reply;
 
         return {
             id: Date.now().toString(),
