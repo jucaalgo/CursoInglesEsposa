@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useUserProfile } from '../hooks/useUserProfile';
 import Button from '../components/Button';
 import { ArrowRight, BookOpen, Trophy, Flame, Check, Loader2, Zap, Star, Target, Sparkles } from 'lucide-react';
+import Landing from './Landing';
 
 const DailyGoalTracker = ({ current, goal }: { current: number, goal: number }) => {
     const percentage = Math.min((current / (goal || 50)) * 100, 100);
@@ -161,7 +162,7 @@ const Home: React.FC = () => {
         );
     }
 
-    if (!activeStudent) return null;
+    if (!activeStudent) return <Landing />;
 
     const features = [
         { title: "Smart Practice", desc: "Speak naturally with AI corrections.", icon: Zap, route: "/practice", color: 'var(--accent-primary)' },
