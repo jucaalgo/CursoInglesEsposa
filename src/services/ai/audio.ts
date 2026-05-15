@@ -48,28 +48,73 @@ export const blobToBase64 = (blob: Blob): Promise<string> => {
     });
 };
 
-// --- AUDIO PLAYBACK ---
+// --- AUDIO PLAYBACK WITH CANCELLATION & SPEED CONTROL ---
 
 let playbackContext: AudioContext | null = null;
+let currentSource: AudioBufferSourceNode | null = null;
+let currentGainNode: GainNode | null = null;
 
-export const playRawAudio = async (base64Str: string) => {
-    if (!base64Str) return;
+export const getAudioContext = (): AudioContext => {
     if (!playbackContext) {
         playbackContext = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)({ sampleRate: 24000 });
     }
-
-    // Resume context if suspended (browser autoplay policy)
     if (playbackContext.state === 'suspended') {
-        await playbackContext.resume();
+        playbackContext.resume();
     }
+    return playbackContext;
+};
+
+/** Stop any currently playing audio */
+export const stopCurrentAudio = () => {
+    if (currentSource) {
+        try { currentSource.stop(); } catch {}
+        currentSource.disconnect();
+        currentSource = null;
+    }
+    if (currentGainNode) {
+        currentGainNode.disconnect();
+        currentGainNode = null;
+    }
+};
+
+/** Playback speed multiplier (0.5 = half speed, 1.0 = normal, 1.5 = fast) */
+let playbackSpeed: number = 1.0;
+
+export const setPlaybackSpeed = (speed: number) => {
+    playbackSpeed = Math.max(0.5, Math.min(2.0, speed));
+};
+
+export const getPlaybackSpeed = (): number => playbackSpeed;
+
+export const playRawAudio = async (base64Str: string) => {
+    if (!base64Str) return;
+    const ctx = getAudioContext();
+
+    // Stop previous audio before playing new one
+    stopCurrentAudio();
 
     try {
         const bytes = decode(base64Str);
-        const audioBuffer = await decodeAudioData(bytes, playbackContext, 24000, 1);
+        const audioBuffer = await decodeAudioData(bytes, ctx, 24000, 1);
 
-        const source = playbackContext.createBufferSource();
+        const source = ctx.createBufferSource();
         source.buffer = audioBuffer;
-        source.connect(playbackContext.destination);
+        source.playbackRate.value = playbackSpeed;
+
+        const gainNode = ctx.createGain();
+        source.connect(gainNode);
+        gainNode.connect(ctx.destination);
+
+        currentSource = source;
+        currentGainNode = gainNode;
+
+        source.onended = () => {
+            if (currentSource === source) {
+                currentSource = null;
+                currentGainNode = null;
+            }
+        };
+
         source.start(0);
     } catch (e) {
         console.error("Audio playback error:", e);

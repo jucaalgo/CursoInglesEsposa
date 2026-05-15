@@ -7,7 +7,7 @@ import { GoogleGenAI, Type, Modality } from "@google/genai";
 // Exports from modules
 export { GoogleGenAI, Type, Modality };
 export { getClient } from "./ai/client";
-export { playRawAudio, decodeAudioData, blobToBase64 } from "./ai/audio";
+export { playRawAudio, stopCurrentAudio, setPlaybackSpeed, getPlaybackSpeed, decodeAudioData, blobToBase64 } from "./ai/audio";
 export { generateSyllabus, generateModuleLessons, generateInteractiveContent } from "./ai/generators";
 export { evaluatePronunciation, analyzeStudentResponse, explainGrammar } from "./ai/analysis";
 export { generateSpeech } from "./ai/tts";

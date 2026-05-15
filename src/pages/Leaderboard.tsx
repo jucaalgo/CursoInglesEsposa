@@ -4,11 +4,12 @@ import Card from '../components/Card';
 import { Trophy, Medal, Star, ArrowLeft, Crown } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import Button from '../components/Button';
+import { Profile } from '../types';
 
 const Leaderboard: React.FC = () => {
     const { profile: activeStudent } = useUserProfile();
     const navigate = useNavigate();
-    const [students, setStudents] = React.useState<any[]>([]);
+    const [students, setStudents] = React.useState<Profile[]>([]);
     const [loading, setLoading] = React.useState(true);
 
     React.useEffect(() => {

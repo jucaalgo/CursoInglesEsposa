@@ -1,11 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { BookOpen, X, Send, AlertCircle, Loader2, Sparkles } from 'lucide-react';
 import Button from '../components/Button';
 import Card from '../components/Card';
 import AudioRecorder from '../components/AudioRecorder';
-import { analyzeStudentResponse, generateSpeech, playRawAudio, explainGrammar } from '../services/gemini';
+import { analyzeStudentResponse, generateSpeech, playRawAudio, stopCurrentAudio, explainGrammar } from '../services/gemini';
 import { useUserProfile } from '../hooks/useUserProfile';
 import { ChatMessage } from '../types';
+import { addError } from '../services/errorJournal';
 import ReactMarkdown from 'react-markdown';
 
 // Helper icon
@@ -76,9 +77,26 @@ const Practice: React.FC = () => {
             const aiMsg = { ...response, id: (Date.now() + 1).toString() };
             setMessages(prev => [...prev, aiMsg]);
 
+            // Save corrections to error journal
+            if (aiMsg.corrections && aiMsg.corrections.length > 0 && profile?.username) {
+                for (const c of aiMsg.corrections) {
+                    try {
+                        addError(profile.username, {
+                            original: c.original,
+                            correction: c.correction,
+                            explanation: c.explanation,
+                            level: profile.current_level || 'A2',
+                        });
+                    } catch (e) {
+                        console.warn('[ErrorJournal] Failed to save correction:', e);
+                    }
+                }
+            }
+
             // Try to play TTS for the response
             if (aiMsg.text) {
                 try {
+                    stopCurrentAudio();
                     const audioData = await generateSpeech(aiMsg.text);
                     await playRawAudio(audioData);
                 } catch (ttsError) {
@@ -212,10 +230,15 @@ const Practice: React.FC = () => {
                     <div className="relative flex-1">
                         <textarea
                             value={input}
-                            onChange={(e) => setInput(e.target.value)}
+                            onChange={(e) => {
+                                setInput(e.target.value);
+                                e.target.style.height = 'auto';
+                                e.target.style.height = Math.min(e.target.scrollHeight, 128) + 'px';
+                            }}
                             onKeyDown={handleKeyPress}
                             placeholder="Type a message..."
-                            className="w-full bg-gray-900 border-0 rounded-lg pl-4 pr-10 py-3 text-white placeholder-gray-500 focus:ring-1 focus:ring-indigo-500 resize-none max-h-32 min-h-[50px]"
+                            className="w-full bg-gray-900 border-0 rounded-lg pl-4 pr-10 py-3 text-white placeholder-gray-500 focus:ring-1 focus:ring-indigo-500 resize-none overflow-y-auto"
+                            style={{ minHeight: '50px', maxHeight: '128px' }}
                             rows={1}
                         />
                         {/* Audio Recorder Button Placement could be absolute here, or separate */}

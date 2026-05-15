@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { Mic, Square, Loader2 } from 'lucide-react';
 import Button from './Button';
 import { blobToBase64 } from '../services/gemini';
@@ -14,19 +14,25 @@ const AudioRecorder: React.FC<AudioRecorderProps> = ({ onRecordingComplete, isPr
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const chunksRef = useRef<Blob[]>([]);
     const timerRef = useRef<number | null>(null);
+    const streamRef = useRef<MediaStream | null>(null);
 
-    useEffect(() => {
+    // Cleanup on unmount only
+    React.useEffect(() => {
         return () => {
             if (timerRef.current) clearInterval(timerRef.current);
-            if (mediaRecorderRef.current && isRecording) {
-                mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+            if (streamRef.current) {
+                streamRef.current.getTracks().forEach(track => track.stop());
+            }
+            if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+                mediaRecorderRef.current.stop();
             }
         };
-    }, [isRecording]);
+    }, []);
 
-    const startRecording = async () => {
+    const startRecording = useCallback(async () => {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            streamRef.current = stream;
             const mediaRecorder = new MediaRecorder(stream);
             mediaRecorderRef.current = mediaRecorder;
             chunksRef.current = [];
@@ -38,18 +44,20 @@ const AudioRecorder: React.FC<AudioRecorderProps> = ({ onRecordingComplete, isPr
             };
 
             mediaRecorder.onstop = async () => {
-                const blob = new Blob(chunksRef.current, { type: 'audio/webm' }); // Chrome default
+                const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
                 const base64 = await blobToBase64(blob);
                 onRecordingComplete(base64);
-
-                // Stop all tracks
-                stream.getTracks().forEach(track => track.stop());
+                if (streamRef.current) {
+                    streamRef.current.getTracks().forEach(track => track.stop());
+                    streamRef.current = null;
+                }
             };
 
             mediaRecorder.start();
             setIsRecording(true);
             setRecordingTime(0);
 
+            if (timerRef.current) clearInterval(timerRef.current);
             timerRef.current = window.setInterval(() => {
                 setRecordingTime(prev => prev + 1);
             }, 1000);
@@ -58,10 +66,10 @@ const AudioRecorder: React.FC<AudioRecorderProps> = ({ onRecordingComplete, isPr
             console.error("Error accessing microphone:", err);
             alert("Could not access microphone. Please check permissions.");
         }
-    };
+    }, [onRecordingComplete]);
 
-    const stopRecording = () => {
-        if (mediaRecorderRef.current && isRecording) {
+    const stopRecording = useCallback(() => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
             mediaRecorderRef.current.stop();
             setIsRecording(false);
             if (timerRef.current) {
@@ -69,7 +77,7 @@ const AudioRecorder: React.FC<AudioRecorderProps> = ({ onRecordingComplete, isPr
                 timerRef.current = null;
             }
         }
-    };
+    }, []);
 
     const formatTime = (seconds: number) => {
         const mins = Math.floor(seconds / 60);

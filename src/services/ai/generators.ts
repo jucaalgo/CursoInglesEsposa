@@ -79,7 +79,16 @@ export const generateModuleLessons = async (topic: string, level: string, numLes
     }
 };
 
+import { cacheLessonContent, getCachedLessonContent } from "../cache";
+
 export const generateInteractiveContent = async (lessonTitle: string, userLevel: string, moduleTitle: string = "English"): Promise<InteractiveContent> => {
+    // Check cache first
+    const cached = getCachedLessonContent(lessonTitle, userLevel);
+    if (cached) {
+        console.log("Lesson cache hit for:", lessonTitle);
+        return cached as InteractiveContent;
+    }
+
     const client = getClient();
     const prompt = `
     ROLE: You are an Expert Cambridge English Examiner and Linguist.
@@ -247,6 +256,9 @@ export const generateInteractiveContent = async (lessonTitle: string, userLevel:
             console.warn("Gemini returned empty quiz. Using fallback.");
             return fallbackContent;
         }
+
+        // Cache the successful result
+        cacheLessonContent(lessonTitle, userLevel, json);
 
         return json;
     } catch (error) {

@@ -38,21 +38,31 @@ export const getProfile = async (username: string): Promise<Profile | null> => {
 };
 
 /**
- * Get ALL profiles from Supabase (for student selector)
+ * Get leaderboard data (limited fields only) from Supabase
+ * Uses the profesoria_leaderboard view for RLS security
  */
 export const getAllProfiles = async (): Promise<Profile[]> => {
     try {
+        // Try the secure leaderboard view first
         const { data, error } = await supabase
-            .from('profesoria_profiles')
+            .from('profesoria_leaderboard')
             .select('*')
+            .order('xp_total', { ascending: false });
+
+        if (!error && data) {
+            return data as Profile[];
+        }
+
+        // Fallback to profiles table (for backward compatibility)
+        const { data: profileData, error: profileError } = await supabase
+            .from('profesoria_profiles')
+            .select('username, name, current_level, xp_total, streak_count, daily_xp, daily_goal')
             .order('name', { ascending: true });
 
-        if (error) throw error;
-
-        return data || [];
+        if (profileError) throw profileError;
+        return profileData || [];
     } catch (error) {
         console.warn('Supabase getAllProfiles failed, using localStorage:', error);
-        // Fallback: return profiles from localStorage
         const allKeys = Object.keys(localStorage).filter(k => k.startsWith('profesoria_profile_'));
         return allKeys.map(key => {
             try {
@@ -106,9 +116,9 @@ export const updateProgress = async (username: string, xpEarned: number): Promis
     const profile = await getProfile(username);
     if (!profile) return;
 
-    const today = new Date().toDateString();
-    const lastPractice = profile.last_practice_at ? new Date(profile.last_practice_at).toDateString() : null;
-    const yesterday = new Date(Date.now() - 86400000).toDateString();
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD in UTC
+    const lastPractice = profile.last_practice_at ? new Date(profile.last_practice_at).toISOString().split('T')[0] : null;
+    const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
 
     let newStreak = profile.streak_count;
     if (lastPractice !== today) {

@@ -1,22 +1,55 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../../services/supabase';
 import { saveProfile } from '../../services/repository';
 import Button from '../../components/Button';
-import { UserPlus, Mail, Lock, User, AlertCircle, Loader2 } from 'lucide-react';
+import { UserPlus, Mail, Lock, User, AlertCircle, Loader2, CheckCircle2, XCircle } from 'lucide-react';
+
+type PasswordStrength = 'weak' | 'fair' | 'good' | 'strong';
+
+const STRENGTH_CONFIG: Record<PasswordStrength, { label: string; color: string; width: string; bgColor: string }> = {
+    weak:   { label: 'Weak',   color: '#ef4444', width: '25%',  bgColor: 'rgba(239, 68, 68, 0.15)' },
+    fair:   { label: 'Fair',   color: '#f97316', width: '50%',  bgColor: 'rgba(249, 115, 22, 0.15)' },
+    good:   { label: 'Good',   color: '#eab308', width: '75%',  bgColor: 'rgba(234, 179, 8, 0.15)' },
+    strong: { label: 'Strong', color: '#22c55e', width: '100%', bgColor: 'rgba(34, 197, 94, 0.15)' },
+};
+
+function getPasswordStrength(password: string): PasswordStrength {
+    if (password.length === 0) return 'weak';
+    const hasLetter = /[a-zA-Z]/.test(password);
+    const hasNumber = /[0-9]/.test(password);
+    const hasSpecial = /[^a-zA-Z0-9]/.test(password);
+    const isLongEnough = password.length >= 8;
+
+    if (isLongEnough && hasLetter && hasNumber && hasSpecial) return 'strong';
+    if (isLongEnough && hasLetter && hasNumber) return 'good';
+    if (isLongEnough && hasLetter) return 'fair';
+    return 'weak';
+}
 
 const SignupPage: React.FC = () => {
     const navigate = useNavigate();
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    const passwordStrength = useMemo(() => getPasswordStrength(password), [password]);
+    const strengthConfig = STRENGTH_CONFIG[passwordStrength];
+    const passwordsMatch = confirmPassword.length === 0 || password === confirmPassword;
+
     const handleSignup = async (e: React.FormEvent) => {
         e.preventDefault();
-        setLoading(true);
         setError(null);
+
+        if (password !== confirmPassword) {
+            setError('Passwords do not match');
+            return;
+        }
+
+        setLoading(true);
 
         try {
             // 1. Sign up with Supabase Auth
@@ -40,7 +73,7 @@ const SignupPage: React.FC = () => {
                     interests: []
                 };
 
-                // We try to save the profile. 
+                // We try to save the profile.
                 // If this fails due to RLS policies not yet being perfectly set up for new users,
                 // we might need to handle it. Phase 2 plan assumes Migration script 01 handles policies.
                 await saveProfile(data.user.id, newProfile);
@@ -118,6 +151,58 @@ const SignupPage: React.FC = () => {
                                     minLength={6}
                                 />
                             </div>
+                            {/* Password Strength Indicator */}
+                            {password.length > 0 && (
+                                <div className="space-y-1.5 mt-2">
+                                    <div className="h-1.5 rounded-full bg-gray-800 overflow-hidden">
+                                        <div
+                                            className="h-full rounded-full transition-all duration-300 ease-out"
+                                            style={{
+                                                width: strengthConfig.width,
+                                                backgroundColor: strengthConfig.color,
+                                            }}
+                                        />
+                                    </div>
+                                    <p
+                                        className="text-xs font-semibold"
+                                        style={{ color: strengthConfig.color }}
+                                    >
+                                        Password strength: {strengthConfig.label}
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-sm font-bold text-gray-500 uppercase tracking-wider ml-1">Confirm Password</label>
+                            <div className="relative">
+                                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+                                <input
+                                    type="password"
+                                    required
+                                    value={confirmPassword}
+                                    onChange={(e) => setConfirmPassword(e.target.value)}
+                                    className={`w-full bg-gray-900 border-2 rounded-2xl pl-12 pr-10 py-3 text-white placeholder-gray-600 focus:outline-none transition-colors ${
+                                        !passwordsMatch
+                                            ? 'border-red-500 focus:border-red-500'
+                                            : 'border-gray-800 focus:border-indigo-500'
+                                    }`}
+                                    placeholder="••••••••"
+                                    minLength={6}
+                                />
+                                {confirmPassword.length > 0 && (
+                                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                                        {passwordsMatch ? (
+                                            <CheckCircle2 className="w-5 h-5 text-green-400" />
+                                        ) : (
+                                            <XCircle className="w-5 h-5 text-red-400" />
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                            {!passwordsMatch && confirmPassword.length > 0 && (
+                                <p className="text-xs text-red-400 font-medium ml-1">Passwords do not match</p>
+                            )}
                         </div>
                     </div>
 

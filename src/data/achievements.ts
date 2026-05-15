@@ -1,75 +1,328 @@
-import { Rocket, Flame, Target, Zap, Crown, BookOpen, Mic, Brain, Star } from 'lucide-react';
+import { Rocket, Flame, Target, Zap, Crown, BookOpen, Mic, Brain, Star, Trophy, MessageSquare, Headphones, PenLine, Link2, Volume2, Clock, Calendar, Award, Sparkles, GraduationCap, Shield, Sword, Gem, Heart, Lightbulb, TrendingUp } from 'lucide-react';
 
 export interface BadgeDefinition {
     id: string;
     title: string;
     description: string;
-    icon: any; // Lucide icon component
-    color: string; // Tailwind color class backbone (e.g. 'amber', 'purple')
+    icon: any;
+    color: string;
+    tier: 'bronze' | 'silver' | 'gold' | 'platinum' | 'diamond';
+    category: 'streak' | 'xp' | 'lesson' | 'skill' | 'social' | 'milestone';
 }
 
+export const TIER_COLORS: Record<string, { bg: string; border: string; label: string }> = {
+    bronze:   { bg: '#cd7f3215', border: '#cd7f3240', label: 'Bronze' },
+    silver:   { bg: '#c0c0c015', border: '#c0c0c040', label: 'Silver' },
+    gold:     { bg: '#ffd70015', border: '#ffd70040', label: 'Gold' },
+    platinum: { bg: '#e5e4e215', border: '#e5e4e240', label: 'Platinum' },
+    diamond:  { bg: '#b9f2ff15', border: '#b9f2ff40', label: 'Diamond' },
+};
+
 export const BADGES: BadgeDefinition[] = [
+    // === STREAK ACHIEVEMENTS ===
     {
-        id: 'first_login',
-        title: 'Newcomer',
-        description: 'Joined the academy.',
-        icon: Rocket,
-        color: 'blue'
-    },
-    {
-        id: 'first_lesson',
-        title: 'First Step',
-        description: 'Completed your first lesson.',
-        icon: BookOpen,
-        color: 'emerald'
+        id: 'streak_1',
+        title: 'First Spark',
+        description: 'Practiced 1 day in a row.',
+        icon: Flame,
+        color: '#f97316',
+        tier: 'bronze',
+        category: 'streak',
     },
     {
         id: 'streak_3',
         title: 'On Fire',
         description: 'Maintained a 3-day streak.',
         icon: Flame,
-        color: 'orange'
+        color: '#f97316',
+        tier: 'silver',
+        category: 'streak',
     },
     {
         id: 'streak_7',
         title: 'Unstoppable',
         description: 'Maintained a 7-day streak.',
+        icon: Flame,
+        color: '#f97316',
+        tier: 'gold',
+        category: 'streak',
+    },
+    {
+        id: 'streak_30',
+        title: 'Habit Master',
+        description: 'Maintained a 30-day streak.',
+        icon: Flame,
+        color: '#f97316',
+        tier: 'platinum',
+        category: 'streak',
+    },
+    {
+        id: 'streak_100',
+        title: 'Legendary Streak',
+        description: 'Maintained a 100-day streak.',
+        icon: Flame,
+        color: '#f97316',
+        tier: 'diamond',
+        category: 'streak',
+    },
+
+    // === XP ACHIEVEMENTS ===
+    {
+        id: 'xp_50',
+        title: 'First Steps',
+        description: 'Earned 50 XP in one day.',
         icon: Zap,
-        color: 'yellow'
+        color: '#8b5cf6',
+        tier: 'bronze',
+        category: 'xp',
     },
     {
         id: 'xp_100',
         title: 'Century',
         description: 'Earned 100 XP total.',
         icon: Star,
-        color: 'indigo'
+        color: '#6366f1',
+        tier: 'silver',
+        category: 'xp',
     },
+    {
+        id: 'xp_500',
+        title: 'Scholar',
+        description: 'Earned 500 XP total.',
+        icon: TrendingUp,
+        color: '#3b82f6',
+        tier: 'gold',
+        category: 'xp',
+    },
+    {
+        id: 'xp_1000',
+        title: 'XP Legend',
+        description: 'Earned 1,000 XP total.',
+        icon: TrendingUp,
+        color: '#06b6d4',
+        tier: 'platinum',
+        category: 'xp',
+    },
+    {
+        id: 'xp_5000',
+        title: 'Grandmaster',
+        description: 'Earned 5,000 XP total.',
+        icon: Crown,
+        color: '#eab308',
+        tier: 'diamond',
+        category: 'xp',
+    },
+
+    // === LESSON ACHIEVEMENTS ===
+    {
+        id: 'first_login',
+        title: 'Newcomer',
+        description: 'Joined the academy.',
+        icon: Rocket,
+        color: '#3b82f6',
+        tier: 'bronze',
+        category: 'milestone',
+    },
+    {
+        id: 'first_lesson',
+        title: 'First Step',
+        description: 'Completed your first lesson.',
+        icon: BookOpen,
+        color: '#22c55e',
+        tier: 'bronze',
+        category: 'lesson',
+    },
+    {
+        id: 'lessons_5',
+        title: 'Getting Warmer',
+        description: 'Completed 5 lessons.',
+        icon: BookOpen,
+        color: '#22c55e',
+        tier: 'silver',
+        category: 'lesson',
+    },
+    {
+        id: 'lessons_10',
+        title: 'Dedicated Learner',
+        description: 'Completed 10 lessons.',
+        icon: BookOpen,
+        color: '#22c55e',
+        tier: 'gold',
+        category: 'lesson',
+    },
+    {
+        id: 'lessons_25',
+        title: 'Knowledge Seeker',
+        description: 'Completed 25 lessons.',
+        icon: GraduationCap,
+        color: '#8b5cf6',
+        tier: 'platinum',
+        category: 'lesson',
+    },
+    {
+        id: 'lessons_50',
+        title: 'Course Completer',
+        description: 'Completed all 50 lessons!',
+        icon: GraduationCap,
+        color: '#ec4899',
+        tier: 'diamond',
+        category: 'lesson',
+    },
+
+    // === SKILL ACHIEVEMENTS ===
     {
         id: 'perfect_quiz',
         title: 'Sharpshooter',
         description: 'Scored 100% on a quiz.',
         icon: Target,
-        color: 'red'
+        color: '#ef4444',
+        tier: 'silver',
+        category: 'skill',
+    },
+    {
+        id: 'perfect_quiz_5',
+        title: 'Perfect Mind',
+        description: 'Scored 100% on 5 quizzes.',
+        icon: Target,
+        color: '#ef4444',
+        tier: 'gold',
+        category: 'skill',
     },
     {
         id: 'grammar_master',
         title: 'Grammar Geek',
         description: 'Used the Grammar Lab 5 times.',
         icon: Brain,
-        color: 'pink'
+        color: '#ec4899',
+        tier: 'silver',
+        category: 'skill',
+    },
+    {
+        id: 'grammar_master_20',
+        title: 'Grammar Sage',
+        description: 'Used the Grammar Lab 20 times.',
+        icon: Brain,
+        color: '#ec4899',
+        tier: 'gold',
+        category: 'skill',
     },
     {
         id: 'voice_pro',
         title: 'Voice Actor',
         description: 'Recorded 10 pronunciation exercises.',
         icon: Mic,
-        color: 'cyan'
+        color: '#06b6d4',
+        tier: 'silver',
+        category: 'skill',
     },
+    {
+        id: 'voice_master',
+        title: 'Voice Master',
+        description: 'Recorded 50 pronunciation exercises.',
+        icon: Mic,
+        color: '#06b6d4',
+        tier: 'gold',
+        category: 'skill',
+    },
+    {
+        id: 'perfect_pronunciation',
+        title: 'Native Speaker',
+        description: 'Scored 95%+ on pronunciation.',
+        icon: Volume2,
+        color: '#10b981',
+        tier: 'gold',
+        category: 'skill',
+    },
+    {
+        id: 'speed_demon',
+        title: 'Speed Demon',
+        description: 'Completed a lesson in under 3 minutes.',
+        icon: Zap,
+        color: '#f59e0b',
+        tier: 'silver',
+        category: 'skill',
+    },
+
+    // === SOCIAL/SPECIAL ACHIEVEMENTS ===
     {
         id: 'level_b1',
         title: 'Intermediate',
         description: 'Reached Level B1.',
         icon: Crown,
-        color: 'purple'
-    }
+        color: '#a855f7',
+        tier: 'gold',
+        category: 'milestone',
+    },
+    {
+        id: 'level_c1',
+        title: 'Advanced Speaker',
+        description: 'Reached Level C1.',
+        icon: Crown,
+        color: '#a855f7',
+        tier: 'platinum',
+        category: 'milestone',
+    },
+    {
+        id: 'chatterbox',
+        title: 'Chatterbox',
+        description: 'Sent 50 messages to the AI tutor.',
+        icon: MessageSquare,
+        color: '#f43f5e',
+        tier: 'silver',
+        category: 'social',
+    },
+    {
+        id: 'conversationalist',
+        title: 'Conversationalist',
+        description: 'Had a 10-message conversation.',
+        icon: MessageSquare,
+        color: '#f43f5e',
+        tier: 'gold',
+        category: 'social',
+    },
+    {
+        id: 'night_owl',
+        title: 'Night Owl',
+        description: 'Practiced after midnight.',
+        icon: Clock,
+        color: '#6366f1',
+        tier: 'bronze',
+        category: 'social',
+    },
+    {
+        id: 'weekend_warrior',
+        title: 'Weekend Warrior',
+        description: 'Practiced on both Saturday and Sunday.',
+        icon: Calendar,
+        color: '#0ea5e9',
+        tier: 'bronze',
+        category: 'social',
+    },
+    {
+        id: 'streak_saver',
+        title: 'Streak Saver',
+        description: 'Used a streak freeze to save your streak.',
+        icon: Shield,
+        color: '#f59e0b',
+        tier: 'bronze',
+        category: 'streak',
+    },
+    {
+        id: 'comeback_king',
+        title: 'Comeback King',
+        description: 'Broke a 7+ day streak, then rebuilt to 7 days.',
+        icon: Sword,
+        color: '#f97316',
+        tier: 'gold',
+        category: 'streak',
+    },
+    {
+        id: 'polyglot',
+        title: 'Polyglot',
+        description: 'Used the app in 3 different skill areas.',
+        icon: Gem,
+        color: '#8b5cf6',
+        tier: 'platinum',
+        category: 'milestone',
+    },
 ];
