@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { Link } from 'react-router-dom';
 import Button from '../components/Button';
 import { Sparkles, ArrowRight, BookOpen, Globe, Zap, Bot, Shield, Star, CheckCircle } from 'lucide-react';
@@ -15,10 +15,13 @@ const Landing: React.FC = () => {
                 </div>
                 <h1 className="text-4xl md:text-6xl lg:text-7xl font-black tracking-tight leading-tight" style={{ color: 'var(--text-primary)' }}>
                     CURSO DE INGLES DISEÑADO POR <br className="hidden md:block" />
-                    <span style={{ color: 'var(--accent-primary)' }}>JUAN ALVARADO</span>
+                    <span style={{ color: 'var(--accent-primary)' }}>JUAN CARLOS ALVARADO</span>
                 </h1>
                 <p className="text-lg md:text-2xl max-w-2xl mx-auto leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
                     Domina el ingles de forma natural y acelerada con lecciones interactivas, practica conversacional con IA y un plan de estudios estructurado.
+                </p>
+                <p className="text-base md:text-lg font-medium italic max-w-xl mx-auto mt-6" style={{ color: 'var(--accent-secondary)' }}>
+                    Para mi amada esposa <span className="font-bold not-italic" style={{ color: 'var(--accent-primary)' }}>HELEN YANDY DE ALVARADO</span> ❤️
                 </p>
             </div>
 
