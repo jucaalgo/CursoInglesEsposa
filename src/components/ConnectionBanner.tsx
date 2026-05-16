@@ -1,7 +1,9 @@
-import React, { useEffect, useState } from 'react';
+﻿import React, { useEffect, useState } from 'react';
 import { Wifi, WifiOff, RefreshCw } from 'lucide-react';
 
 type ConnectionState = 'online' | 'offline' | 'checking';
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://cxkgdalprrmttsxudznw.supabase.co';
 
 const ConnectionBanner: React.FC = () => {
     const [connection, setConnection] = useState<ConnectionState>('online');
@@ -21,7 +23,7 @@ const ConnectionBanner: React.FC = () => {
             }
             try {
                 setConnection('checking');
-                const resp = await fetch('https://cxkgdalprrmttsxudznw.supabase.co/rest/v1/', {
+                const resp = await fetch(SUPABASE_URL + '/rest/v1/', {
                     method: 'HEAD',
                     cache: 'no-store',
                 });
@@ -51,7 +53,7 @@ const ConnectionBanner: React.FC = () => {
     const handleRetry = async () => {
         setRetrying(true);
         try {
-            const resp = await fetch('https://cxkgdalprrmttsxudznw.supabase.co/rest/v1/', {
+            const resp = await fetch(SUPABASE_URL + '/rest/v1/', {
                 method: 'HEAD', cache: 'no-store',
             });
             if (resp.ok) {
