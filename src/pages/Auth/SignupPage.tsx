@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+﻿import React, { useState, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../../services/supabase';
 import { saveProfile } from '../../services/repository';
@@ -67,9 +67,7 @@ const SignupPage: React.FC = () => {
                     username: data.user.id, // Using UID as username key for now to simplify migration
                     name: name,
                     current_level: 'A1',
-                    target_level: 'B2',
-                    xp_total: 0,
-                    streak_count: 0,
+                    target_level: 'C2',
                     interests: []
                 };
 
@@ -78,7 +76,7 @@ const SignupPage: React.FC = () => {
                 // we might need to handle it. Phase 2 plan assumes Migration script 01 handles policies.
                 await saveProfile(data.user.id, newProfile);
 
-                navigate('/academy');
+                navigate('/onboarding');
             }
         } catch (err: unknown) {
             setError(err instanceof Error ? err.message : 'Signup failed');
