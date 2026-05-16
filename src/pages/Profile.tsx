@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
+﻿import React, { useEffect, useState } from 'react';
 import { useUserProfile } from '../hooks/useUserProfile';
 import { useTheme, THEMES, type ThemeId } from '../hooks/useTheme';
 import Button from '../components/Button';
 import { Loader2, Trophy, Flame, Target, Star, Palette, Check, Sparkles } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { BADGES } from '../data/achievements';
 
 const CEFR_LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
@@ -18,6 +19,7 @@ const THEME_PREVIEWS: Record<ThemeId, { emoji: string }> = {
 
 const Profile: React.FC = () => {
     const { profile, loading, error, updateProfile } = useUserProfile();
+    const navigate = useNavigate();
     const { theme, setTheme, themeColors } = useTheme();
     const [isEditing, setIsEditing] = useState(false);
     const [name, setName] = useState('');
@@ -122,12 +124,22 @@ const Profile: React.FC = () => {
                         </div>
                         <div>
                             <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Level</p>
-                            <p className="text-2xl font-black" style={{ color: 'var(--text-primary)' }}>{profile?.current_level || 'A1'}</p>
+                            <div className="flex items-center gap-2">
+                                <p className="text-2xl font-black" style={{ color: 'var(--text-primary)' }}>{profile?.current_level || 'A1'}</p>
+                                <button
+                                    onClick={() => navigate('/onboarding')}
+                                    className="px-2 py-0.5 rounded-lg text-xs font-bold transition-all hover:scale-105"
+                                    style={{ background: 'var(--accent-primary)', color: 'white' }}
+                                    title="Retake placement test"
+                                >
+                                    Change
+                                </button>
+                            </div>
+                            <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>Click to retake the placement test</p>
                         </div>
                     </div>
                 </div>
             </div>
-
             {/* Theme Selection */}
             <div className="p-6 rounded-2xl animate-in" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-default)' }}>
                 <div className="flex items-center gap-3 mb-4">
