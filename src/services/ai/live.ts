@@ -1,8 +1,11 @@
 import { Modality, LiveServerMessage, GoogleGenAI } from "@google/genai";
 import { getLiveApiKey } from "./client";
-import { decode, decodeAudioData, encode } from "./audio";
+import { decode, decodeAudioData } from "./audio";
 
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+
+// Vite resolves the worklet file as a URL for audioWorklet.addModule()
+const PCM_PROCESSOR_URL = new URL("../../worklets/pcm-processor.js", import.meta.url);
 
 export class LiveSession {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -10,7 +13,7 @@ export class LiveSession {
     private inputContext: AudioContext;
     private outputContext: AudioContext;
     private inputSource: MediaStreamAudioSourceNode | null = null;
-    private processor: ScriptProcessorNode | null = null;
+    private workletNode: AudioWorkletNode | null = null;
     private nextStartTime: number = 0;
     private onMessageCallback: (text: string | null, isInterrupted: boolean) => void;
     private stream: MediaStream | null = null;
@@ -57,7 +60,7 @@ export class LiveSession {
             callbacks: {
                 onopen: async () => {
                     if (this.destroyed) return;
-                    if (this.stream) this.startAudioStream(this.stream);
+                    if (this.stream) await this.startAudioStream(this.stream);
                     this.resetIdleTimer();
                 },
                 onmessage: async (message: LiveServerMessage) => {
@@ -89,10 +92,38 @@ export class LiveSession {
         await this.sessionPromise;
     }
 
-    private startAudioStream(stream: MediaStream) {
+    private async startAudioStream(stream: MediaStream) {
         this.inputSource = this.inputContext.createMediaStreamSource(stream);
-        this.processor = this.inputContext.createScriptProcessor(4096, 1, 1);
-        this.processor.onaudioprocess = (e) => {
+
+        // Load AudioWorklet processor (replaces deprecated ScriptProcessorNode)
+        try {
+            await this.inputContext.audioWorklet.addModule(PCM_PROCESSOR_URL);
+            this.workletNode = new AudioWorkletNode(this.inputContext, 'pcm-processor');
+
+            this.workletNode.port.onmessage = (event: MessageEvent) => {
+                if (this.destroyed) return;
+                const { data, mimeType } = event.data as { data: string; mimeType: string };
+                if (this.sessionPromise) {
+                    this.sessionPromise.then(session => {
+                        session.sendRealtimeInput({ media: { data, mimeType } });
+                    });
+                }
+            };
+
+            this.inputSource.connect(this.workletNode);
+            this.workletNode.connect(this.inputContext.destination);
+        } catch (err) {
+            // Fallback to ScriptProcessorNode if AudioWorklet is not supported
+            console.warn("AudioWorklet not available, falling back to ScriptProcessorNode", err);
+            this.startLegacyAudioStream(stream);
+        }
+    }
+
+    /** Legacy fallback for browsers without AudioWorklet support */
+    private startLegacyAudioStream(stream: MediaStream) {
+        this.inputSource = this.inputContext.createMediaStreamSource(stream);
+        const processor = this.inputContext.createScriptProcessor(4096, 1, 1);
+        processor.onaudioprocess = (e) => {
             if (this.destroyed) return;
             const inputData = e.inputBuffer.getChannelData(0);
             const pcmBlob = this.createBlob(inputData);
@@ -102,8 +133,12 @@ export class LiveSession {
                 });
             }
         };
-        this.inputSource.connect(this.processor);
-        this.processor.connect(this.inputContext.destination);
+        this.inputSource.connect(processor);
+        processor.connect(this.inputContext.destination);
+        // Store as workletNode for consistent cleanup (type doesn't matter for disconnect)
+        this.workletNode = null;
+        // We need to track the legacy processor separately for cleanup
+        (this as any)._legacyProcessor = processor;
     }
 
     private async playAudio(base64: string) {
@@ -124,9 +159,17 @@ export class LiveSession {
             int16[i] = data[i] * 32768;
         }
         return {
-            data: encode(new Uint8Array(int16.buffer)),
+            data: this.encode(new Uint8Array(int16.buffer)),
             mimeType: 'audio/pcm;rate=16000',
         };
+    }
+
+    private encode(bytes: Uint8Array) {
+        let binary = '';
+        for (let i = 0; i < bytes.byteLength; i++) {
+            binary += String.fromCharCode(bytes[i]);
+        }
+        return btoa(binary);
     }
 
     async disconnect() {
@@ -135,10 +178,18 @@ export class LiveSession {
         this.destroyed = true;
         this.clearIdleTimer();
 
-        if (this.processor) {
-            this.processor.onaudioprocess = null;
-            this.processor.disconnect();
-            this.processor = null;
+        // Clean up AudioWorklet node
+        if (this.workletNode) {
+            this.workletNode.port.onmessage = null;
+            this.workletNode.disconnect();
+            this.workletNode = null;
+        }
+        // Clean up legacy processor if fallback was used
+        const legacyProcessor = (this as any)._legacyProcessor as ScriptProcessorNode | undefined;
+        if (legacyProcessor) {
+            legacyProcessor.onaudioprocess = null;
+            legacyProcessor.disconnect();
+            delete (this as any)._legacyProcessor;
         }
         if (this.inputSource) {
             this.inputSource.disconnect();
