@@ -1,5 +1,6 @@
-﻿import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Wifi, WifiOff, RefreshCw } from 'lucide-react';
+import { supabase } from '../services/supabase';
 
 type ConnectionState = 'online' | 'offline' | 'checking';
 
@@ -21,6 +22,14 @@ const ConnectionBanner: React.FC = () => {
                 setShowBanner(true);
                 return;
             }
+
+            // Si el usuario no está autenticado, solo usa navigator.onLine para evitar 401
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) {
+                setConnection('online');
+                return;
+            }
+
             try {
                 setConnection('checking');
                 const resp = await fetch(SUPABASE_URL + '/rest/v1/', {
