@@ -2,6 +2,7 @@ import { Type } from "@google/genai";
 import { UserProfile, InteractiveContent } from "../../types";
 import { callGemini } from "./client";
 import { cacheLessonContent, getCachedLessonContent } from "../cache";
+import { retryWithBackoff } from "../../utils/rateLimiter";
 
 export const generateSyllabus = async (profile: UserProfile): Promise<string[]> => {
     const prompt = `
@@ -17,7 +18,7 @@ export const generateSyllabus = async (profile: UserProfile): Promise<string[]> 
     try {
         const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Syllabus generation timed out")), 60000));
         const response: { text: (() => string) | null; candidates: unknown[] } = await Promise.race([
-            callGemini({
+            retryWithBackoff(() => callGemini({
                 model: 'gemini-2.5-flash',
                 contents: prompt,
                 config: {
@@ -27,7 +28,7 @@ export const generateSyllabus = async (profile: UserProfile): Promise<string[]> 
                         items: { type: Type.STRING }
                     }
                 }
-            }),
+            })),
             timeout
         ]) as { text: (() => string) | null; candidates: unknown[] };
 
@@ -58,7 +59,7 @@ export const generateModuleLessons = async (topic: string, level: string, numLes
     try {
         const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Lesson generation timed out")), 45000));
         const response: { text: (() => string) | null; candidates: unknown[] } = await Promise.race([
-            callGemini({
+            retryWithBackoff(() => callGemini({
                 model: 'gemini-2.5-flash',
                 contents: prompt,
                 config: {
@@ -68,7 +69,7 @@ export const generateModuleLessons = async (topic: string, level: string, numLes
                         items: { type: Type.STRING }
                     }
                 }
-            }),
+            })),
             timeout
         ]) as { text: (() => string) | null; candidates: unknown[] };
 
@@ -222,7 +223,7 @@ export const generateInteractiveContent = async (lessonTitle: string, userLevel:
         );
 
         const response: { text: (() => string) | null; candidates: unknown[] } = await Promise.race([
-            callGemini({
+            retryWithBackoff(() => callGemini({
                 model: 'gemini-2.5-flash',
                 contents: prompt,
                 config: {
@@ -241,7 +242,7 @@ export const generateInteractiveContent = async (lessonTitle: string, userLevel:
                         }
                     }
                 }
-            }),
+            })),
             timeout
         ]) as { text: (() => string) | null; candidates: unknown[] };
 

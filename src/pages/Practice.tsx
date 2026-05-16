@@ -7,7 +7,15 @@ import { analyzeStudentResponse, generateSpeech, playRawAudio, stopCurrentAudio,
 import { useUserProfile } from '../hooks/useUserProfile';
 import { ChatMessage } from '../types';
 import { addError } from '../services/errorJournal';
+import { debounce, createRateLimiter } from '../utils/rateLimiter';
 import ReactMarkdown from 'react-markdown';
+
+// Gemini API rate limiter: max 10 calls/minute, 2s minimum interval
+const geminiLimiter = createRateLimiter({
+    minIntervalMs: 2000,
+    maxCallsPerMinute: 10,
+});
+
 
 const Practice: React.FC = () => {
     const { profile } = useUserProfile();
@@ -32,7 +40,18 @@ const Practice: React.FC = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
 
+    const debouncedSend = useCallback(
+        debounce(async (textInput?: string, audioBase64?: string) => {
+            await executeSend(textInput, audioBase64);
+        }, 300),
+        [messages, input, profile, isLoading]
+    );
+
     const handleSend = async (textInput?: string, audioBase64?: string) => {
+        debouncedSend(textInput, audioBase64);
+    };
+
+    const executeSend = async (textInput?: string, audioBase64?: string) => {
         const textToSend = textInput || input;
 
         if ((!textToSend && !audioBase64) || isLoading) return;
@@ -50,12 +69,14 @@ const Practice: React.FC = () => {
         try {
             const lastModelMsg = messages.filter(m => m.role === 'model').pop()?.text || "Start conversation";
 
-            // Call API with either text or audio
-            const response = await analyzeStudentResponse(
-                lastModelMsg,
-                textToSend || null,
-                profile?.current_level || 'A2',
-                audioBase64
+            // Call API with either text or audio (rate-limited per user)
+            const response = await geminiLimiter.execute(
+                () => analyzeStudentResponse(
+                    lastModelMsg,
+                    textToSend || null,
+                    profile?.current_level || 'A2',
+                    audioBase64
+                )
             );
 
             const aiMsg = { ...response, id: (Date.now() + 1).toString() };
