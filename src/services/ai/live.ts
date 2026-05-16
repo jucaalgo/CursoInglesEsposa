@@ -1,5 +1,5 @@
-import { Modality, LiveServerMessage } from "@google/genai";
-import { getClient } from "./client";
+import { Modality, LiveServerMessage, GoogleGenAI } from "@google/genai";
+import { getLiveApiKey } from "./client";
 import { decode, decodeAudioData, encode } from "./audio";
 
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
@@ -16,6 +16,7 @@ export class LiveSession {
     private stream: MediaStream | null = null;
     private idleTimer: ReturnType<typeof setTimeout> | null = null;
     private destroyed = false;
+    private client: GoogleGenAI | null = null;
 
     constructor(onMessage: (text: string | null, isInterrupted: boolean) => void) {
         this.onMessageCallback = onMessage;
@@ -42,13 +43,15 @@ export class LiveSession {
     async connect(systemInstruction: string, voiceName: string = 'Puck') {
         if (this.destroyed) return;
 
-        const client = getClient();
+        // Get API key via authenticated endpoint instead of env var
+        const apiKey = await getLiveApiKey();
+        this.client = new GoogleGenAI({ apiKey });
+
         if (this.outputContext.state === 'suspended') await this.outputContext.resume();
         if (this.inputContext.state === 'suspended') await this.inputContext.resume();
 
         this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-        // Updated to latest live model
         const config = {
             model: 'models/gemini-2.5-flash-native-audio-preview-12-2025',
             callbacks: {
@@ -82,7 +85,7 @@ export class LiveSession {
                 }
             }
         };
-        this.sessionPromise = client.live.connect(config);
+        this.sessionPromise = this.client.live.connect(config);
         await this.sessionPromise;
     }
 
@@ -127,7 +130,6 @@ export class LiveSession {
     }
 
     async disconnect() {
-        // Guard against double-disconnect
         if (this.destroyed) return;
 
         this.destroyed = true;
@@ -161,7 +163,6 @@ export class LiveSession {
         }
     }
 
-    /** Full teardown for component unmount — safe to call multiple times. */
     async destroy() {
         await this.disconnect();
     }

@@ -1,5 +1,5 @@
 import { Modality } from "@google/genai";
-import { getClient } from "./client";
+import { callGemini } from "./client";
 import { cacheTTSAudio, getCachedTTSAudio } from "../cache";
 
 export const generateSpeech = async (text: string, voiceName?: string): Promise<string> => {
@@ -8,7 +8,6 @@ export const generateSpeech = async (text: string, voiceName?: string): Promise<
         throw new Error("Empty text");
     }
 
-    // Use stored voice preference or default to Kore
     const selectedVoice = voiceName || localStorage.getItem('profesoria_tts_voice') || 'Kore';
 
     // Check cache first
@@ -18,9 +17,8 @@ export const generateSpeech = async (text: string, voiceName?: string): Promise<
         return cached;
     }
 
-    const client = getClient();
     try {
-        const response = await client.models.generateContent({
+        const response = await callGemini({
             model: 'gemini-2.5-flash-preview-tts',
             contents: { parts: [{ text: text.trim() }] },
             config: {
@@ -33,12 +31,16 @@ export const generateSpeech = async (text: string, voiceName?: string): Promise<
             },
         });
 
-        const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+        // Extract base64 audio from the REST API response format
+        const candidates = response.candidates as Array<Record<string, unknown>>;
+        const content = candidates?.[0]?.content as Record<string, unknown> | undefined;
+        const parts = content?.parts as Array<Record<string, unknown>> | undefined;
+        const inlineData = parts?.[0]?.inlineData as { data?: string } | undefined;
+        const base64Audio = inlineData?.data;
+
         if (!base64Audio) throw new Error("No audio generated from model");
 
-        // Cache the result
         cacheTTSAudio(text, base64Audio);
-
         return base64Audio;
     } catch (e: any) {
         console.error("TTS generation failed:", e);

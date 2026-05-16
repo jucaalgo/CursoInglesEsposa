@@ -1,6 +1,6 @@
 import { Type } from "@google/genai";
 import { PronunciationAnalysis, ChatMessage } from "../../types";
-import { getClient } from "./client";
+import { callGemini } from "./client";
 
 export const evaluatePronunciation = async (
     targetPhrase: string,
@@ -8,55 +8,55 @@ export const evaluatePronunciation = async (
     userLevel: string
 ): Promise<PronunciationAnalysis> => {
     try {
-        const client = getClient();
         const parts = [
             { inlineData: { mimeType: 'audio/wav', data: audioBase64 } },
             {
                 text: `Act as a strict Linguistic Expert.
                 Target Phrase: "${targetPhrase}".
                 Student Level: ${userLevel}.
-                
+
                 Analyze the audio strictly for:
                 1. Accuracy (Score 0-100).
                 2. Tone/Intonation (e.g., Flat, Monotone, Natural, Expressive).
                 3. Diction/Articulation (Clarity of individual sounds).
                 4. Specific Errors.
-                
+
                 Return JSON. score, feedback (general), toneAnalysis (string), dictionAnalysis (string), improvementTips (array of strings), words (array).`
             }
         ];
 
-        const fetchEval = client.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: { parts },
-            config: {
-                responseMimeType: 'application/json',
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        score: { type: Type.INTEGER },
-                        feedback: { type: Type.STRING },
-                        toneAnalysis: { type: Type.STRING },
-                        dictionAnalysis: { type: Type.STRING },
-                        improvementTips: { type: Type.ARRAY, items: { type: Type.STRING } },
-                        words: {
-                            type: Type.ARRAY,
-                            items: {
-                                type: Type.OBJECT,
-                                properties: {
-                                    word: { type: Type.STRING },
-                                    isCorrect: { type: Type.BOOLEAN },
-                                    errorType: { type: Type.STRING, enum: ['mispronounced', 'skipped', 'tone'] }
+        const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Pronunciation analysis timed out")), 30000));
+        const response: { text: (() => string) | null; candidates: unknown[] } = await Promise.race([
+            callGemini({
+                model: 'gemini-2.5-flash',
+                contents: { parts },
+                config: {
+                    responseMimeType: 'application/json',
+                    responseSchema: {
+                        type: Type.OBJECT,
+                        properties: {
+                            score: { type: Type.INTEGER },
+                            feedback: { type: Type.STRING },
+                            toneAnalysis: { type: Type.STRING },
+                            dictionAnalysis: { type: Type.STRING },
+                            improvementTips: { type: Type.ARRAY, items: { type: Type.STRING } },
+                            words: {
+                                type: Type.ARRAY,
+                                items: {
+                                    type: Type.OBJECT,
+                                    properties: {
+                                        word: { type: Type.STRING },
+                                        isCorrect: { type: Type.BOOLEAN },
+                                        errorType: { type: Type.STRING, enum: ['mispronounced', 'skipped', 'tone'] }
+                                    }
                                 }
                             }
                         }
                     }
                 }
-            }
-        });
-
-        const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Pronunciation analysis timed out")), 30000));
-        const response = await Promise.race([fetchEval, timeout]) as { text?: () => string };
+            }),
+            timeout
+        ]) as { text: (() => string) | null; candidates: unknown[] };
 
         const result = JSON.parse(response.text ? response.text() : '{"score": 0, "feedback": "Could not analyze", "words": []}');
         return { ...result, phrase: targetPhrase };
@@ -72,18 +72,17 @@ export const analyzeStudentResponse = async (
     userLevel: string,
     audioBase64?: string
 ): Promise<ChatMessage> => {
-    const client = getClient();
     const parts: { inlineData?: { mimeType: string; data: string }; text?: string }[] = [];
 
     const strictSystemPrompt = `
     ROLE: You are a STRICT Cambridge English Examiner.
     GOAL: Correct EVERY grammar, vocabulary, or pronunciation mistake instantly. Do NOT be polite if it means ignoring an error.
-    
+
     INSTRUCTIONS:
     1. Compare user input to Native Speaker standard (Level ${userLevel}).
     2. If there is ANY error (even small), your "reply" MUST start with the correction.
     3. If the input is perfect, simply reply conversationally.
-    
+
     OUTPUT JSON FORMAT (Strictly enforce this):
     {
       "has_mistake": boolean,
@@ -101,29 +100,29 @@ export const analyzeStudentResponse = async (
     }
 
     try {
-        const fetchChat = client.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: { parts },
-            config: {
-                responseMimeType: 'application/json',
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        has_mistake: { type: Type.BOOLEAN },
-                        corrected_text: { type: Type.STRING },
-                        explanation: { type: Type.STRING },
-                        reply: { type: Type.STRING },
+        const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Chat analysis timed out")), 20000));
+        const response: { text: (() => string) | null; candidates: unknown[] } = await Promise.race([
+            callGemini({
+                model: 'gemini-2.5-flash',
+                contents: { parts },
+                config: {
+                    responseMimeType: 'application/json',
+                    responseSchema: {
+                        type: Type.OBJECT,
+                        properties: {
+                            has_mistake: { type: Type.BOOLEAN },
+                            corrected_text: { type: Type.STRING },
+                            explanation: { type: Type.STRING },
+                            reply: { type: Type.STRING },
+                        }
                     }
                 }
-            }
-        });
-
-        const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Chat analysis timed out")), 20000));
-        const response = await Promise.race([fetchChat, timeout]) as { text?: () => string };
+            }),
+            timeout
+        ]) as { text: (() => string) | null; candidates: unknown[] };
 
         const analysis = JSON.parse(response.text ? response.text() : '{}');
 
-        // Logic: If mistake, Force the UI to show it.
         const finalReply = analysis.reply;
 
         return {
@@ -143,7 +142,6 @@ export const analyzeStudentResponse = async (
 };
 
 export const explainGrammar = async (text: string, userLevel: string): Promise<string> => {
-    const client = getClient();
     const prompt = `
     ROLE: You are an expert English Professor specializing in Linguistics and the CEFR framework.
     TASK: Provide a comprehensive, professional, yet easy-to-understand breakdown of the grammar and structure of the following text:
@@ -160,11 +158,11 @@ export const explainGrammar = async (text: string, userLevel: string): Promise<s
   `;
 
     try {
-        const response = await client.models.generateContent({
+        const response = await callGemini({
             model: 'gemini-2.5-flash',
             contents: prompt,
         });
-        return response.text || "I'm sorry, I couldn't generate an explanation right now.";
+        return response.text ? response.text() : "I'm sorry, I couldn't generate an explanation right now.";
     } catch (e) {
         console.error("Grammar explanation error", e);
         return "Failed to analyze grammar. Please check your connection.";

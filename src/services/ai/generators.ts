@@ -1,13 +1,13 @@
 import { Type } from "@google/genai";
 import { UserProfile, InteractiveContent } from "../../types";
-import { getClient } from "./client";
+import { callGemini } from "./client";
+import { cacheLessonContent, getCachedLessonContent } from "../cache";
 
 export const generateSyllabus = async (profile: UserProfile): Promise<string[]> => {
-    const client = getClient();
     const prompt = `
       Act as a Lead Curriculum Designer.
       Student Profile: Level ${profile.current_level} -> ${profile.target_level}. Interests: ${(profile.interests || []).join(', ')}.
-      
+
       Create a comprehensive list of exactly 50 FOCUS AREAS (Broad Topics) for their learning journey.
       Examples: "Airport Survival", "Business Email Etiquette", "Past Tense Mastery", "Ordering Food".
       Order them progressively from easiest to hardest.
@@ -15,20 +15,21 @@ export const generateSyllabus = async (profile: UserProfile): Promise<string[]> 
     `;
 
     try {
-        const fetchSyllabus = client.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-            config: {
-                responseMimeType: 'application/json',
-                responseSchema: {
-                    type: Type.ARRAY,
-                    items: { type: Type.STRING }
-                }
-            }
-        });
-
         const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Syllabus generation timed out")), 60000));
-        const response = await Promise.race([fetchSyllabus, timeout]) as { text?: () => string };
+        const response: { text: (() => string) | null; candidates: unknown[] } = await Promise.race([
+            callGemini({
+                model: 'gemini-2.5-flash',
+                contents: prompt,
+                config: {
+                    responseMimeType: 'application/json',
+                    responseSchema: {
+                        type: Type.ARRAY,
+                        items: { type: Type.STRING }
+                    }
+                }
+            }),
+            timeout
+        ]) as { text: (() => string) | null; candidates: unknown[] };
 
         return JSON.parse(response.text ? response.text() : '[]');
     } catch (_e) {
@@ -37,19 +38,16 @@ export const generateSyllabus = async (profile: UserProfile): Promise<string[]> 
     }
 };
 
-// Helper function for cleaning JSON, assuming it's defined elsewhere or will be added.
-// For now, it will just parse the JSON.
 const cleanJson = (text: string) => {
     try {
         return JSON.parse(text);
     } catch (e) {
         console.error("Error parsing JSON:", e);
-        return []; // Return an empty array or handle error as appropriate
+        return [];
     }
 };
 
 export const generateModuleLessons = async (topic: string, level: string, numLessons: number, _moduleTitle: string): Promise<string[]> => {
-    const client = getClient();
     const prompt = `
       For the English Focus Area: "${topic}" (Level ${level}).
       Generate exactly ${numLessons} distinct, sequential STEPS (Lesson Titles) to master this area.
@@ -58,28 +56,27 @@ export const generateModuleLessons = async (topic: string, level: string, numLes
     `;
 
     try {
-        const fetchLessons = client.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-            config: {
-                responseMimeType: 'application/json',
-                responseSchema: {
-                    type: Type.ARRAY,
-                    items: { type: Type.STRING }
-                }
-            }
-        });
-
         const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Lesson generation timed out")), 45000));
-        const response = await Promise.race([fetchLessons, timeout]) as { text?: () => string };
+        const response: { text: (() => string) | null; candidates: unknown[] } = await Promise.race([
+            callGemini({
+                model: 'gemini-2.5-flash',
+                contents: prompt,
+                config: {
+                    responseMimeType: 'application/json',
+                    responseSchema: {
+                        type: Type.ARRAY,
+                        items: { type: Type.STRING }
+                    }
+                }
+            }),
+            timeout
+        ]) as { text: (() => string) | null; candidates: unknown[] };
 
         return JSON.parse(response.text ? response.text() : '[]');
     } catch (_e) {
         return Array.from({ length: 10 }, (_, i) => `${_moduleTitle} - Step ${i + 1}`);
     }
 };
-
-import { cacheLessonContent, getCachedLessonContent } from "../cache";
 
 export const generateInteractiveContent = async (lessonTitle: string, userLevel: string, moduleTitle: string = "English"): Promise<InteractiveContent> => {
     // Check cache first
@@ -89,23 +86,22 @@ export const generateInteractiveContent = async (lessonTitle: string, userLevel:
         return cached as InteractiveContent;
     }
 
-    const client = getClient();
     const prompt = `
     ROLE: You are an Expert Cambridge English Examiner and Linguist.
     TASK: Generate a high-quality, interactive English lesson about "${lessonTitle}".
     LEVEL: ${userLevel} (Strict adherence required).
-    
+
     GUIDELINES:
     - If Level is A1/A2: Use simple vocab, short sentences, focus on basics.
     - If Level is B1/B2: Use compound sentences, phrasal verbs, idioms.
     - If Level is C1/C2: Use nuance, advanced grammar (inversion, conditionals), sophisticated vocab.
-    
+
     REQUIRED JSON STRUCTURE (Strictly follow field names):
     {
-      "scenario": { 
-          "description": "Context situation", 
-          "dialogueScript": "A: Hello\\nB: Hi", 
-          "context": "Brief context" 
+      "scenario": {
+          "description": "Context situation",
+          "dialogueScript": "A: Hello\\nB: Hi",
+          "context": "Brief context"
       },
       "vocabulary": [
           { "id": "1", "term": "Word", "definition": "Meaning" },
@@ -121,8 +117,8 @@ export const generateInteractiveContent = async (lessonTitle: string, userLevel:
           { "id": "f1", "sentence": "I ___ to the store.", "correctWord": "go", "options": ["go", "gone", "went"], "translation": "Voy a la tienda" },
           { "id": "f2", "sentence": "She ___ very happy.", "correctWord": "is", "options": ["is", "are", "be"], "translation": "Ella está muy feliz" }
       ],
-      "scramble": { 
-          "id": "s1", "sentence": "I like apple pie", "scrambledParts": ["pie", "I", "apple", "like"], "translation": "Me gusta..." 
+      "scramble": {
+          "id": "s1", "sentence": "I like apple pie", "scrambledParts": ["pie", "I", "apple", "like"], "translation": "Me gusta..."
       },
       "wordMatching": {
           "id": "wm1",
@@ -145,10 +141,9 @@ export const generateInteractiveContent = async (lessonTitle: string, userLevel:
           ]
       }
     }
-    
+
     Use strictly valid JSON. No markdown backticks.`;
 
-    // EMERGENCY FALLBACK CONTENT
     const fallbackContent: InteractiveContent = {
         scenario: {
             description: `Practice Session: ${lessonTitle}`,
@@ -222,44 +217,43 @@ export const generateInteractiveContent = async (lessonTitle: string, userLevel:
     };
 
     try {
-        const fetchContent = client.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-            config: {
-                responseMimeType: 'application/json',
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        scenario: { type: Type.OBJECT, properties: { description: { type: Type.STRING }, dialogueScript: { type: Type.STRING }, context: { type: Type.STRING } } },
-                        vocabulary: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, term: { type: Type.STRING }, definition: { type: Type.STRING } } } },
-                        quiz: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, question: { type: Type.STRING }, options: { type: Type.ARRAY, items: { type: Type.STRING } }, correctIndex: { type: Type.INTEGER } } } },
-                        fillInBlanks: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, sentence: { type: Type.STRING }, correctWord: { type: Type.STRING }, options: { type: Type.ARRAY, items: { type: Type.STRING } }, translation: { type: Type.STRING } } } },
-                        scramble: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, sentence: { type: Type.STRING }, scrambledParts: { type: Type.ARRAY, items: { type: Type.STRING } }, translation: { type: Type.STRING } } },
-                        wordMatching: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, pairs: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { word: { type: Type.STRING }, match: { type: Type.STRING } } } } } },
-                        listening: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, phrase: { type: Type.STRING }, answer: { type: Type.STRING }, hint: { type: Type.STRING } } } },
-                        conversation: { type: Type.OBJECT, properties: { goal: { type: Type.STRING }, turns: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { speaker: { type: Type.STRING }, text: { type: Type.STRING }, translation: { type: Type.STRING } } } } } }
-                    }
-                }
-            }
-        });
-
         const timeout = new Promise((_, reject) =>
             setTimeout(() => reject(new Error("Request timed out")), 90000)
         );
 
-        const response = await Promise.race([fetchContent, timeout]) as { text?: () => string };
+        const response: { text: (() => string) | null; candidates: unknown[] } = await Promise.race([
+            callGemini({
+                model: 'gemini-2.5-flash',
+                contents: prompt,
+                config: {
+                    responseMimeType: 'application/json',
+                    responseSchema: {
+                        type: Type.OBJECT,
+                        properties: {
+                            scenario: { type: Type.OBJECT, properties: { description: { type: Type.STRING }, dialogueScript: { type: Type.STRING }, context: { type: Type.STRING } } },
+                            vocabulary: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, term: { type: Type.STRING }, definition: { type: Type.STRING } } } },
+                            quiz: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, question: { type: Type.STRING }, options: { type: Type.ARRAY, items: { type: Type.STRING } }, correctIndex: { type: Type.INTEGER } } } },
+                            fillInBlanks: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, sentence: { type: Type.STRING }, correctWord: { type: Type.STRING }, options: { type: Type.ARRAY, items: { type: Type.STRING } }, translation: { type: Type.STRING } } } },
+                            scramble: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, sentence: { type: Type.STRING }, scrambledParts: { type: Type.ARRAY, items: { type: Type.STRING } }, translation: { type: Type.STRING } } },
+                            wordMatching: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, pairs: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { word: { type: Type.STRING }, match: { type: Type.STRING } } } } } },
+                            listening: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, phrase: { type: Type.STRING }, answer: { type: Type.STRING }, hint: { type: Type.STRING } } } },
+                            conversation: { type: Type.OBJECT, properties: { goal: { type: Type.STRING }, turns: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { speaker: { type: Type.STRING }, text: { type: Type.STRING }, translation: { type: Type.STRING } } } } } }
+                        }
+                    }
+                }
+            }),
+            timeout
+        ]) as { text: (() => string) | null; candidates: unknown[] };
+
         const text = response.text ? response.text() : '{}';
         let json = JSON.parse(text);
 
-        // Validate JSON content - if empty arrays, USE FALLBACK
         if (!json.quiz || json.quiz.length === 0) {
             console.warn("Gemini returned empty quiz. Using fallback.");
             return fallbackContent;
         }
 
-        // Cache the successful result
         cacheLessonContent(lessonTitle, userLevel, json);
-
         return json;
     } catch (error) {
         console.error("Content generation error, using FALLBACK:", error);

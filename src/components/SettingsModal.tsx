@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Key, Save, LogOut, Trash2, AlertCircle, Volume2, Gauge } from 'lucide-react';
+import { X, LogOut, Trash2, AlertCircle, Volume2, Gauge } from 'lucide-react';
 import Button from './Button';
 import Card from './Card';
 import { useAuth } from '../context/AuthContext';
@@ -24,7 +24,6 @@ interface SettingsModalProps {
 const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
     const { signOut, user } = useAuth();
     const { toast } = useToast();
-    const [apiKey, setApiKey] = useState('');
     const [selectedVoice, setSelectedVoice] = useState(() =>
         localStorage.getItem('profesoria_tts_voice') || 'Kore'
     );
@@ -33,22 +32,10 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
 
     useEffect(() => {
         if (isOpen) {
-            const storedKey = localStorage.getItem('profesoria_api_key');
-            if (storedKey) setApiKey(storedKey);
             setSelectedVoice(localStorage.getItem('profesoria_tts_voice') || 'Kore');
             setLocalSpeed(getPlaybackSpeed());
         }
     }, [isOpen]);
-
-    const handleSaveKey = () => {
-        if (apiKey.trim()) {
-            localStorage.setItem('profesoria_api_key', apiKey.trim());
-        } else {
-            localStorage.removeItem('profesoria_api_key');
-        }
-        toast.success('Settings Saved', 'API key updated. Some changes may require a page refresh.');
-        onClose();
-    };
 
     const handleVoiceChange = (voiceId: string) => {
         setSelectedVoice(voiceId);
@@ -145,36 +132,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                                         <span>1.5x Fast</span>
                                     </div>
                                 </div>
-                            </div>
-                        </div>
-
-                        {/* API Configuration */}
-                        <div className="space-y-4">
-                            <div className="flex items-center gap-3 text-indigo-400">
-                                <Key className="w-5 h-5" />
-                                <h4 className="font-bold uppercase tracking-wider text-sm">API Configuration</h4>
-                            </div>
-
-                            <div className="space-y-4 pl-8">
-                                <div>
-                                    <label className="block text-sm font-bold text-gray-400 mb-1 uppercase tracking-tight">
-                                        Gemini API Key
-                                    </label>
-                                    <input
-                                        type="password"
-                                        value={apiKey}
-                                        onChange={(e) => setApiKey(e.target.value)}
-                                        placeholder="AIzaSy..."
-                                        className="w-full bg-gray-950 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                    />
-                                    <p className="text-xs text-gray-500 mt-2 font-medium">
-                                        Required for personalized AI features.
-                                    </p>
-                                </div>
-                                <Button onClick={handleSaveKey} className="w-full h-12 rounded-xl">
-                                    <Save className="w-4 h-4 mr-2" />
-                                    Save Configuration
-                                </Button>
                             </div>
                         </div>
 
