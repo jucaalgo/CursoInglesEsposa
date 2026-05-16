@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://profesoria.vercel.app/sitemap.xml

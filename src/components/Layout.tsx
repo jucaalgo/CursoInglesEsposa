@@ -4,11 +4,13 @@ import { BookOpen, User, Home as HomeIcon, Settings, GraduationCap, Palette, Ale
 import { cn } from './Button';
 import SettingsModal from './SettingsModal';
 import ThemeSelector from './ThemeSelector';
+import ConnectionBanner from './ConnectionBanner';
 
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     return (
         <div className="flex flex-col min-h-screen font-inter selection:bg-[var(--accent-primary-muted)]"
              style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
+            <ConnectionBanner />
             <Navbar />
             <main className="flex-1 w-full max-w-5xl mx-auto p-4 md:p-6 lg:p-8 pb-24 md:pb-8 animate-in">
                 {children}

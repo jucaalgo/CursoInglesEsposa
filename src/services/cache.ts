@@ -5,6 +5,11 @@ const CACHE_PREFIX = 'profesoria_cache_';
 const DEFAULT_TTL = 24 * 60 * 60 * 1000; // 24 hours for lesson content
 const TTS_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days for TTS audio (larger, rarely changes)
 
+// Size limits to prevent localStorage quota issues
+const MAX_CACHE_ENTRIES = 100;          // Max total cache entries
+const MAX_TTS_SIZE_BYTES = 500 * 1024;  // 500KB per TTS audio entry (base64 ≈ 1.4x binary)
+const MAX_TTS_ENTRIES = 20;             // Max TTS cache entries
+
 interface CacheEntry<T> {
     data: T;
     timestamp: number;
@@ -35,8 +40,19 @@ function safeSet(key: string, value: string): boolean {
     }
 }
 
+function getCacheKeys(): string[] {
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key?.startsWith(CACHE_PREFIX)) {
+            keys.push(key);
+        }
+    }
+    return keys;
+}
+
 function evictOldestEntries(): void {
-    const entries: { key: string; timestamp: number } = [];
+    const entries: { key: string; timestamp: number }[] = [];
     for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
         if (key?.startsWith(CACHE_PREFIX)) {
@@ -51,10 +67,10 @@ function evictOldestEntries(): void {
             }
         }
     }
-    // Remove oldest 20% of entries
+    // Remove oldest 20% of entries (minimum 2)
     entries.sort((a, b) => a.timestamp - b.timestamp);
-    const toRemove = Math.max(1, Math.floor(entries.length * 0.2));
-    for (let i = 0; i < toRemove; i++) {
+    const toRemove = Math.max(2, Math.floor(entries.length * 0.2));
+    for (let i = 0; i < toRemove && i < entries.length; i++) {
         localStorage.removeItem(entries[i].key);
     }
 }
@@ -64,7 +80,15 @@ function evictOldestEntries(): void {
 export function cacheLessonContent(topic: string, level: string, data: unknown): boolean {
     const key = `${CACHE_PREFIX}lesson_${level}_${topic}`;
     const entry: CacheEntry<unknown> = { data, timestamp: Date.now(), ttl: DEFAULT_TTL };
-    return safeSet(key, JSON.stringify(entry));
+    const serialized = JSON.stringify(entry);
+
+    // Evict if we're over the max entry count
+    const allKeys = getCacheKeys();
+    if (allKeys.length >= MAX_CACHE_ENTRIES) {
+        evictOldestEntries();
+    }
+
+    return safeSet(key, serialized);
 }
 
 export function getCachedLessonContent(topic: string, level: string): unknown | null {

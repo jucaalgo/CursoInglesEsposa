@@ -1,0 +1,18 @@
+{
+  "name": "Profesoria - English Tutor AI",
+  "short_name": "Profesoria",
+  "description": "Aprende inglés conversando con inteligencia artificial. Corrección en tiempo real.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#030712",
+  "theme_color": "#7c3aed",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
